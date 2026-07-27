@@ -24,7 +24,7 @@ elif [[ "$COMMAND" == "debug" ]]; then
 fi
 
 gardenlet_name="local"
-if [[ "$SKAFFOLD_PROFILE" == "multi-node2" ]]; then
+if [[ "$SKAFFOLD_PROFILE" == "single-node2" ]] || [[ "$SKAFFOLD_PROFILE" == "multi-node2" ]]; then
   gardenlet_name="local2"
 elif [[ "$SKAFFOLD_PROFILE" == "remote" ]]; then
   gardenlet_name="remote"
@@ -42,17 +42,12 @@ case "$COMMAND" in
   up)
     skaffold run \
       -m garden-config \
+      ${BUILD_CONCURRENCY:+--build-concurrency "$BUILD_CONCURRENCY"} \
       --kubeconfig "$KUBECONFIG_VIRTUAL_GARDEN_CLUSTER" \
       --status-check=false --platform="linux/$SYSTEM_ARCH" # deployments don't exist in virtual-garden, see https://skaffold.dev/docs/status-check/; nodes don't exist in virtual-garden, ensure skaffold use the host architecture instead of amd64, see https://skaffold.dev/docs/workflows/handling-platforms/
 
     if [[ "$SCENARIO" == "multi-node-gardenadm" ]]; then
       cp "$KUBECONFIG_SELFHOSTEDSHOOT_CLUSTER" "$(dirname "$0")/gardenlet/components/kubeconfigs/seed-root/kubeconfig"
-      # TODO(rfranzke): In the gardenadm (self-hosted shoot) scenario, the seed gardenlet is deployed via a
-      #  ManagedSeed (that gets reconciled by the already running shoot gardenlet). The ManagedSeed controller requires
-      #  the Shoot status to indicate successful reconciliation before it attempts to deploy something. As the
-      #  shoot/shoot controller is not yet activated in the shoot gardenlet, we have to manually manipulate the status
-      #  here. This can be removed once the shoot/shoot controller in the shoot gardenlet has been enabled.
-      kubectl --kubeconfig "$KUBECONFIG_VIRTUAL_GARDEN_CLUSTER" -n garden patch shoot root --subresource=status --type=merge --patch='{"status":{"lastOperation":{"state":"Succeeded"},"observedGeneration":1}}'
     fi
 
     skaffold $skaffold_command \

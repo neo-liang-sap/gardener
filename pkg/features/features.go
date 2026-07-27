@@ -70,14 +70,6 @@ const (
 	// alpha: v1.137.0
 	VictoriaLogsBackend featuregate.Feature = "VictoriaLogsBackend"
 
-	// VPAInPlaceUpdates enables the usage of in-place Pod resource updates in the Vertical Pod Autoscaler resources
-	// to perform in-place Pod resource updates.
-	// owner: @vitanovs @ialidzhikov
-	// alpha: v1.133.0
-	// beta: v1.138.0
-	// GA: 1.146.0
-	VPAInPlaceUpdates featuregate.Feature = "VPAInPlaceUpdates"
-
 	// CustomDNSServerInNodeLocalDNS enables custom server block support for NodeLocalDNS in the custom CoreDNS configuration of Shoot clusters.
 	// owner: @docktofuture
 	// beta: v1.133.0
@@ -133,7 +125,14 @@ const (
 	// etcd-backup secret, aligning the garden with the same extension contract that shoot clusters use.
 	// owner: @rfranzke
 	// alpha: v1.142.0
+	// beta: v1.147.0
 	BackupEntryForGarden featuregate.Feature = "BackupEntryForGarden"
+
+	// RemoveHTTPProxyLegacyPort removes the old HTTP proxy network infrastructure on the seed side (ingress
+	// gateway port tls-tunnel, Gateway, EnvoyFilter, etc.) through the gardenlet, as described in GEP-0030.
+	// owner: @jamand @timebertt
+	// alpha: v1.148.0
+	RemoveHTTPProxyLegacyPort featuregate.Feature = "RemoveHTTPProxyLegacyPort"
 )
 
 // DefaultFeatureGate is the central feature gate map used by all gardener components.
@@ -168,7 +167,6 @@ var AllFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	DoNotCopyBackupCredentials:     {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	OpenTelemetryCollector:         {Default: true, PreRelease: featuregate.Beta},
 	VictoriaLogsBackend:            {Default: false, PreRelease: featuregate.Alpha},
-	VPAInPlaceUpdates:              {Default: true, PreRelease: featuregate.GA, LockToDefault: true},
 	CustomDNSServerInNodeLocalDNS:  {Default: true, PreRelease: featuregate.Beta},
 	VPNBondingModeRoundRobin:       {Default: false, PreRelease: featuregate.Alpha},
 	PrometheusHealthChecks:         {Default: false, PreRelease: featuregate.Alpha},
@@ -178,7 +176,8 @@ var AllFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	DisableNginxIngressInSeed:      {Default: false, PreRelease: featuregate.Alpha},
 	DisableNginxIngressInShoot:     {Default: false, PreRelease: featuregate.Alpha},
 	LiveControlPlaneMigration:      {Default: false, PreRelease: featuregate.Alpha},
-	BackupEntryForGarden:           {Default: false, PreRelease: featuregate.Alpha},
+	BackupEntryForGarden:           {Default: true, PreRelease: featuregate.Beta},
+	RemoveHTTPProxyLegacyPort:      {Default: false, PreRelease: featuregate.Alpha},
 }
 
 // GetFeatures returns a feature gate map with the respective specifications. Non-existing feature gates are ignored.

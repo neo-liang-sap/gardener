@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	machinev1alpha1 "github.com/gardener/machine-controller-manager/pkg/apis/machine/v1alpha1"
 	"github.com/go-logr/logr"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,8 +50,17 @@ const (
 func shootHibernatedConstraints(clock clock.Clock, conditions ...gardencorev1beta1.Condition) []gardencorev1beta1.Condition {
 	hibernationConditions := make([]gardencorev1beta1.Condition, 0, len(conditions))
 	for _, cond := range conditions {
-		// During hibernation, this condition will always be True, so we can skip it
-		if cond.Type == gardencorev1beta1.ShootManualInPlaceWorkersUpdated {
+		// Not applicable during hibernation — skip entirely.
+		if cond.Type == gardencorev1beta1.ShootManualInPlaceWorkersUpdated || cond.Type == gardencorev1beta1.ShootPreservedFailedMachinesAbsent {
+			continue
+		}
+		// Optional constraint computed before the hibernation guard.
+		// Only preserve it if it's non-True (i.e. there are ignored MRs worth showing).
+		// When True, drop it — consistent with filterOptionalConstraints behaviour.
+		if cond.Type == gardencorev1beta1.ShootHasIgnoredManagedResources {
+			if cond.Status != gardencorev1beta1.ConditionTrue {
+				hibernationConditions = append(hibernationConditions, cond)
+			}
 			continue
 		}
 		hibernationConditions = append(hibernationConditions, v1beta1helper.UpdatedConditionWithClock(clock, cond, gardencorev1beta1.ConditionTrue, "ConstraintNotChecked", "Shoot cluster has been hibernated."))
@@ -110,6 +120,21 @@ func (c *Constraint) constraintsChecks(
 	ctx context.Context,
 	constraints ShootConstraints,
 ) []gardencorev1beta1.Condition {
+	// Check whether any ManagedResources in the shoot's control plane namespace have been annotated with
+	// resources.gardener.cloud/ignore=true, which disables their reconciliation.
+	status, reason, message, err := c.checkIfManagedResourcesAreIgnored(ctx)
+	if err != nil {
+		constraints.hasIgnoredManagedResources = v1beta1helper.UpdatedConditionUnknownErrorWithClock(c.clock, constraints.hasIgnoredManagedResources, err)
+	} else {
+		constraints.hasIgnoredManagedResources = v1beta1helper.UpdatedConditionWithClock(c.clock, constraints.hasIgnoredManagedResources, status, reason, message)
+	}
+	status, reason, message, err = c.checkPreservation(ctx)
+	if err != nil {
+		constraints.preservedFailedMachinesAbsent = v1beta1helper.UpdatedConditionUnknownErrorWithClock(c.clock, constraints.preservedFailedMachinesAbsent, err)
+	} else {
+		constraints.preservedFailedMachinesAbsent = v1beta1helper.UpdatedConditionWithClock(c.clock, constraints.preservedFailedMachinesAbsent, status, reason, message)
+	}
+
 	if c.shoot.HibernationEnabled || c.shoot.GetInfo().Status.IsHibernated {
 		return shootHibernatedConstraints(c.clock, constraints.ConvertToSlice()...)
 	}
@@ -136,14 +161,14 @@ func (c *Constraint) constraintsChecks(
 
 		return filterOptionalConstraints(
 			[]gardencorev1beta1.Condition{constraints.hibernationPossible, constraints.maintenancePreconditionsSatisfied},
-			[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.manualInPlaceWorkersUpdated},
+			[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.manualInPlaceWorkersUpdated, constraints.hasIgnoredManagedResources, constraints.preservedFailedMachinesAbsent},
 		)
 	}
 	if !apiServerRunning {
 		// don't check constraints if API server has already been deleted or has not been created yet
 		return filterOptionalConstraints(
 			shootControlPlaneNotRunningConstraints(c.clock, constraints.hibernationPossible, constraints.maintenancePreconditionsSatisfied),
-			[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.manualInPlaceWorkersUpdated},
+			[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.manualInPlaceWorkersUpdated, constraints.hasIgnoredManagedResources, constraints.preservedFailedMachinesAbsent},
 		)
 	}
 	c.shootClient = shootClient.Client()
@@ -166,7 +191,7 @@ func (c *Constraint) constraintsChecks(
 
 	return filterOptionalConstraints(
 		[]gardencorev1beta1.Condition{constraints.hibernationPossible, constraints.maintenancePreconditionsSatisfied},
-		[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.crdsWithProblematicConversionWebhooks, constraints.manualInPlaceWorkersUpdated},
+		[]gardencorev1beta1.Condition{constraints.caCertificateValiditiesAcceptable, constraints.crdsWithProblematicConversionWebhooks, constraints.manualInPlaceWorkersUpdated, constraints.hasIgnoredManagedResources, constraints.preservedFailedMachinesAbsent},
 	)
 }
 
@@ -265,6 +290,37 @@ func (c *Constraint) checkIfManualInPlaceWorkersUpdated() (gardencorev1beta1.Con
 			strings.Join(c.shoot.GetInfo().Status.InPlaceUpdates.PendingWorkerUpdates.ManualInPlaceUpdate, ", "))
 }
 
+// checkIfManagedResourcesAreIgnored lists all ManagedResources in the shoot's control plane namespace and checks
+// whether any of them have the resources.gardener.cloud/ignore=true annotation set, which disables their reconciliation.
+func (c *Constraint) checkIfManagedResourcesAreIgnored(ctx context.Context) (gardencorev1beta1.ConditionStatus, string, string, error) {
+	managedResourceList := &resourcesv1alpha1.ManagedResourceList{}
+	if err := c.seedClient.List(ctx, managedResourceList, client.InNamespace(c.shoot.ControlPlaneNamespace)); err != nil {
+		return "", "", "", fmt.Errorf("could not list ManagedResources in shoot namespace in seed to check for ignored resources: %w", err)
+	}
+
+	ignoredNames := sets.New[string]()
+	for _, mr := range managedResourceList.Items {
+		if value, ok := mr.GetAnnotations()[resourcesv1alpha1.Ignore]; ok {
+			if truthy, _ := strconv.ParseBool(value); truthy {
+				ignoredNames.Insert(mr.Name)
+			}
+		}
+	}
+
+	if ignoredNames.Len() > 0 {
+		return gardencorev1beta1.ConditionFalse,
+			"ManagedResourcesIgnored",
+			fmt.Sprintf("Some ManagedResources have been annotated with %s=true, meaning their reconciliation is disabled: %s",
+				resourcesv1alpha1.Ignore, strings.Join(sets.List(ignoredNames), ", ")),
+			nil
+	}
+
+	return gardencorev1beta1.ConditionTrue,
+		"NoManagedResourcesIgnored",
+		"No ManagedResources are annotated to be ignored.",
+		nil
+}
+
 // checkIfCRDsWithProblematicConversionWebhooksPresent checks whether there are CRDs with multiple stored versions and
 // conversion webhooks are present in the cluster.
 func (c *Constraint) checkIfCRDsWithProblematicConversionWebhooksPresent(ctx context.Context) (gardencorev1beta1.ConditionStatus, string, string, error) {
@@ -295,6 +351,26 @@ func (c *Constraint) checkIfCRDsWithProblematicConversionWebhooksPresent(ctx con
 		"NoCRDsWithProblematicConversionWebhooks",
 		"No CRDs have multiple stored versions present and a conversion webhook configured",
 		nil
+}
+
+// checkPreservation checks whether the shoot has preserved failed machines and returns the corresponding condition.
+func (c *Constraint) checkPreservation(ctx context.Context) (gardencorev1beta1.ConditionStatus, string, string, error) {
+	if c.shoot.IsWorkerless || (c.shoot.IsSelfHosted() && !c.shoot.HasManagedInfrastructure()) {
+		return gardencorev1beta1.ConditionTrue, "NoPreservationApplicable", "No machine preservation applies to this shoot.", nil
+	}
+	machineDeploymentList := &machinev1alpha1.MachineDeploymentList{}
+	if err := c.seedClient.List(ctx, machineDeploymentList, client.InNamespace(c.shoot.ControlPlaneNamespace)); err != nil {
+		return "", "", "", err
+	}
+	var totalPreserved int32
+	for _, mcd := range machineDeploymentList.Items {
+		totalPreserved += mcd.Status.PreservedFailedReplicas
+	}
+	if totalPreserved > 0 {
+		return gardencorev1beta1.ConditionFalse, "FailedMachinesPreserved",
+			fmt.Sprintf("Cluster has %d preserved failed machine(s).", totalPreserved), nil
+	}
+	return gardencorev1beta1.ConditionTrue, "NoFailedMachinesPreserved", "No failed machines are being preserved.", nil
 }
 
 // CheckForProblematicWebhooks checks the Shoot for problematic webhooks which could prevent shoot worker nodes from
@@ -453,6 +529,8 @@ type ShootConstraints struct {
 	caCertificateValiditiesAcceptable     gardencorev1beta1.Condition
 	crdsWithProblematicConversionWebhooks gardencorev1beta1.Condition
 	manualInPlaceWorkersUpdated           gardencorev1beta1.Condition
+	hasIgnoredManagedResources            gardencorev1beta1.Condition
+	preservedFailedMachinesAbsent         gardencorev1beta1.Condition
 }
 
 // ConvertToSlice returns the shoot constraints as a slice.
@@ -463,6 +541,8 @@ func (g ShootConstraints) ConvertToSlice() []gardencorev1beta1.Condition {
 		g.caCertificateValiditiesAcceptable,
 		g.crdsWithProblematicConversionWebhooks,
 		g.manualInPlaceWorkersUpdated,
+		g.hasIgnoredManagedResources,
+		g.preservedFailedMachinesAbsent,
 	}
 }
 
@@ -474,6 +554,8 @@ func (g ShootConstraints) ConstraintTypes() []gardencorev1beta1.ConditionType {
 		g.caCertificateValiditiesAcceptable.Type,
 		g.crdsWithProblematicConversionWebhooks.Type,
 		g.manualInPlaceWorkersUpdated.Type,
+		g.hasIgnoredManagedResources.Type,
+		g.preservedFailedMachinesAbsent.Type,
 	}
 }
 
@@ -486,5 +568,7 @@ func NewShootConstraints(clock clock.Clock, shoot *gardencorev1beta1.Shoot) Shoo
 		caCertificateValiditiesAcceptable:     v1beta1helper.GetOrInitConditionWithClock(clock, shoot.Status.Constraints, gardencorev1beta1.ShootCACertificateValiditiesAcceptable),
 		crdsWithProblematicConversionWebhooks: v1beta1helper.GetOrInitConditionWithClock(clock, shoot.Status.Constraints, gardencorev1beta1.ShootCRDsWithProblematicConversionWebhooks),
 		manualInPlaceWorkersUpdated:           v1beta1helper.GetOrInitConditionWithClock(clock, shoot.Status.Constraints, gardencorev1beta1.ShootManualInPlaceWorkersUpdated),
+		hasIgnoredManagedResources:            v1beta1helper.GetOrInitConditionWithClock(clock, shoot.Status.Constraints, gardencorev1beta1.ShootHasIgnoredManagedResources),
+		preservedFailedMachinesAbsent:         v1beta1helper.GetOrInitConditionWithClock(clock, shoot.Status.Constraints, gardencorev1beta1.ShootPreservedFailedMachinesAbsent),
 	}
 }

@@ -1617,6 +1617,153 @@ var _ = Describe("Shoot Validation Tests", func() {
 					shoot.Spec.Provider.Workers[0].Minimum = 3
 					shoot.Spec.Provider.Workers[0].Maximum = 3
 
+					Expect(ValidateShoot(shoot)).To(ContainElements(
+						PointTo(MatchFields(IgnoreExtras, Fields{
+							"Type":   Equal(field.ErrorTypeInvalid),
+							"Field":  Equal("spec.provider.workers[0].minimum"),
+							"Detail": ContainSubstring("self-hosted shoots only support minimum=maximum=1 for the control plane worker pool (might change in the future)"),
+						})),
+						PointTo(MatchFields(IgnoreExtras, Fields{
+							"Type":   Equal(field.ErrorTypeInvalid),
+							"Field":  Equal("spec.provider.workers[0].maximum"),
+							"Detail": ContainSubstring("control plane worker pool must have maximum=1 when high availability is not configured"),
+						})),
+					))
+				})
+
+				It("should prevent maximum != 1 without high availability", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].maximum"),
+						"Detail": ContainSubstring("control plane worker pool must have maximum=1 when high availability is not configured"),
+					}))))
+				})
+
+				It("should allow maximum=3 with high availability failure tolerance type node except for HA restriction", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(1))
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeNode,
+							},
+						},
+					}
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].minimum"),
+						"Detail": ContainSubstring("self-hosted shoots only support minimum=maximum=1 for the control plane worker pool (might change in the future)"),
+					}))))
+				})
+
+				It("should prevent maximum != 3 with high availability", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 5
+					shoot.Spec.Provider.Workers[0].Maximum = 5
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(1))
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeNode,
+							},
+						},
+					}
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].maximum"),
+						"Detail": ContainSubstring("control plane worker pool must have maximum=3 when high availability is configured"),
+					}))))
+				})
+
+				It("should prevent maxSurge != 1 with high availability", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(2))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(1))
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeNode,
+							},
+						},
+					}
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].maxSurge"),
+						"Detail": ContainSubstring("control plane worker pool must have maxSurge=1 when high availability is configured"),
+					}))))
+				})
+
+				It("should prevent maxUnavailable != 1 with high availability", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(0))
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeNode,
+							},
+						},
+					}
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].maxUnavailable"),
+						"Detail": ContainSubstring("control plane worker pool must have maxUnavailable=1 when high availability is configured"),
+					}))))
+				})
+
+				It("should prevent zone failure tolerance without 3 zones", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].Zones = []string{"a", "b"}
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeZone,
+							},
+						},
+					}
+
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeInvalid),
+						"Field":  Equal("spec.provider.workers[0].zones"),
+						"Detail": ContainSubstring("control plane worker pool must have exactly 3 zones when failure tolerance type is zone"),
+					}))))
+				})
+
+				It("should allow zone failure tolerance with 3 zones except for HA restriction", func() {
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.Provider.Workers[0].Minimum = 3
+					shoot.Spec.Provider.Workers[0].Maximum = 3
+					shoot.Spec.Provider.Workers[0].MaxSurge = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].MaxUnavailable = new(intstr.FromInt32(1))
+					shoot.Spec.Provider.Workers[0].Zones = []string{"a", "b", "c"}
+					shoot.Spec.ControlPlane = &core.ControlPlane{
+						HighAvailability: &core.HighAvailability{
+							FailureTolerance: core.FailureTolerance{
+								Type: core.FailureToleranceTypeZone,
+							},
+						},
+					}
+
 					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
 						"Type":   Equal(field.ErrorTypeInvalid),
 						"Field":  Equal("spec.provider.workers[0].minimum"),
@@ -4466,6 +4613,55 @@ var _ = Describe("Shoot Validation Tests", func() {
 					"Type":   Equal(field.ErrorTypeInvalid),
 					"Field":  Equal("maxBinpackingTime"),
 					"Detail": Equal("must be non-negative"),
+				})))),
+				Entry("valid with autoscaling minAllowed", core.ClusterAutoscaler{
+					Autoscaling: &core.ControlPlaneAutoscaling{
+						MinAllowed: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
+						},
+					},
+				}, version_1_32, BeEmpty()),
+				Entry("invalid autoscaling with empty minAllowed", core.ClusterAutoscaler{
+					Autoscaling: &core.ControlPlaneAutoscaling{
+						MinAllowed: corev1.ResourceList{},
+					},
+				}, version_1_32, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeRequired),
+					"Field":  Equal("autoscaling.minAllowed"),
+					"Detail": Equal("must provide minAllowed"),
+				})))),
+				Entry("invalid autoscaling with unsupported resource in minAllowed", core.ClusterAutoscaler{
+					Autoscaling: &core.ControlPlaneAutoscaling{
+						MinAllowed: corev1.ResourceList{
+							"hugepages-1Gi": resource.MustParse("1"),
+						},
+					},
+				}, version_1_32, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeNotSupported),
+					"Field": Equal("autoscaling.minAllowed.hugepages-1Gi"),
+				})))),
+				Entry("invalid autoscaling with below minRequired cpu resource in minAllowed", core.ClusterAutoscaler{
+					Autoscaling: &core.ControlPlaneAutoscaling{
+						MinAllowed: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("5m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
+						},
+					},
+				}, version_1_32, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("autoscaling.minAllowed.cpu"),
+				})))),
+				Entry("invalid autoscaling with below minRequired memory resource in minAllowed", core.ClusterAutoscaler{
+					Autoscaling: &core.ControlPlaneAutoscaling{
+						MinAllowed: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("5Mi"),
+						},
+					},
+				}, version_1_32, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeInvalid),
+					"Field": Equal("autoscaling.minAllowed.memory"),
 				})))),
 			)
 
@@ -7578,6 +7774,33 @@ var _ = Describe("Shoot Validation Tests", func() {
 					}))))
 				})
 			})
+
+			DescribeTable("forbid certain operations when shoot is self-hosted",
+				func(operation, forbiddenOp string) {
+					shoot.Namespace = "garden"
+					shoot.Spec.Provider.Workers[0].ControlPlane = &core.WorkerControlPlane{}
+					shoot.Spec.SecretBindingName = nil
+
+					metav1.SetMetaDataAnnotation(&shoot.ObjectMeta, "gardener.cloud/operation", operation)
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeForbidden),
+						"Field":  Equal("metadata.annotations[gardener.cloud/operation]"),
+						"Detail": ContainSubstring(fmt.Sprintf("operation '%s' is not permitted for self-hosted shoot clusters with unmanaged infrastructure", forbiddenOp)),
+					}))))
+					delete(shoot.Annotations, "gardener.cloud/operation")
+
+					metav1.SetMetaDataAnnotation(&shoot.ObjectMeta, "maintenance.gardener.cloud/operation", operation)
+					Expect(ValidateShoot(shoot)).To(ContainElement(PointTo(MatchFields(IgnoreExtras, Fields{
+						"Type":   Equal(field.ErrorTypeForbidden),
+						"Field":  Equal("metadata.annotations[maintenance.gardener.cloud/operation]"),
+						"Detail": ContainSubstring(fmt.Sprintf("operation '%s' is not permitted for self-hosted shoot clusters with unmanaged infrastructure", forbiddenOp)),
+					}))))
+					delete(shoot.Annotations, "maintenance.gardener.cloud/operation")
+				},
+
+				Entry("rotate-rollout-workers", "rotate-rollout-workers", "rotate-rollout-workers"),
+				Entry("rollout-workers", "rollout-workers", "rollout-workers"),
+			)
 		})
 
 		Context("scheduler name", func() {
@@ -9232,98 +9455,183 @@ var _ = Describe("Shoot Validation Tests", func() {
 				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
 				Expect(errList).To(ConsistOf(field.Invalid(field.NewPath("workers[0].machineControllerManagerSettings.maxEvictRetries"), int64(-2), "must be greater than or equal to 0").WithOrigin("minimum")))
 			})
-		})
-		It("should fail when priority is set to value less than -1", func() {
-			worker := core.Worker{
-				Name: "worker",
-				Machine: core.Machine{
-					Type: "xlarge",
-					Image: &core.ShootMachineImage{
-						Name:    "image-name",
-						Version: "1.0.0",
-					},
-				},
-				MaxUnavailable: new(intstr.FromInt(1)),
-				Priority:       new(int32(-2)),
-			}
 
-			errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, nil, false)
-			Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
-				"Type":   Equal(field.ErrorTypeInvalid),
-				"Field":  Equal("priority"),
-				"Detail": Equal("can not be less than -1"),
-			}))))
-		})
+			It("should forbid setting machinePreserveTimeout to negative value", func() {
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					MachinePreserveTimeout: &metav1.Duration{Duration: time.Minute * -2},
+				}
 
-		DescribeTable("sysctl setting validation", func(sysctls map[string]string, matcher gomegatypes.GomegaMatcher) {
-			errList := ValidateSysctls(sysctls, field.NewPath("sysctls"))
-			Expect(errList).To(matcher)
-		},
-			Entry("accept valid sysctl keys",
-				map[string]string{
-					"foo.bar":                        "123",
-					"fs.aio-nr":                      "192",
-					"fs.binfmt_misc.python3/13":      "enabled",
-					"net.ipv4.conf.eth0.forwarding":  "1",
-					"net.ipv4.tcp_mem":               "374874	499832	749748",
-					"-net.ipv4.conf.all.proxy_arp":   "0",
-					"net.ipv4.conf.*.route_localnet": "1",
-				},
-				BeEmpty(),
-			),
-			Entry("reject invalid sysctl keys not matching regex",
-				map[string]string{
-					".foo.bar":   "123",
-					"foo..bar":   "abc",
-					"foo.bar.":   "123",
-					"foo.bar_":   "abc",
-					"foo.bar/":   "123",
-					"foo.bar-":   "abc",
-					"foo\"bar":   "123",
-					"foo=bar":    "abc",
-					"foo;bar":    "123",
-					"foo.**.bar": "abc",
-					"foo.bar*":   "123",
-					"foo.bar.*":  "abc",
-					"_foo.bar":   "123",
-					"/foo.bar":   "abc",
-				}, SatisfyAll(
-					HaveLen(14),
-					HaveEach(PointTo(MatchFields(IgnoreExtras, Fields{
-						"Type":   Equal(field.ErrorTypeInvalid),
-						"Field":  ContainSubstring("sysctls."),
-						"Detail": ContainSubstring("sysctl key must must match regex"),
-					}))),
-				),
-			),
-			Entry("reject sysctl keys with too long subkeys",
-				map[string]string{
-					func(size int) string {
-						// create a very long string
-						var b strings.Builder
-						for range size {
-							fmt.Fprint(&b, "s")
-						}
-						return b.String()
-					}(256): "abc",
-				}, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
 					"Type":   Equal(field.ErrorTypeInvalid),
-					"Field":  ContainSubstring("sysctls.sss"),
-					"Detail": Equal("sub key of sysctl must not exceed 255 bytes"),
+					"Field":  Equal("workers[0].machineControllerManagerSettings.machinePreserveTimeout"),
+					"Detail": Equal("must be non-negative"),
+				}))))
+			})
+
+			It("should allow setting autoPreserveFailedMachineMax to maximum if system components are not allowed", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: false}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(worker.Maximum),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(BeEmpty())
+			})
+
+			It("should allow setting autoPreserveFailedMachineMax to maximum-1 if system components are allowed", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: true}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(worker.Maximum - 1),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(BeEmpty())
+			})
+
+			It("should not allow setting autoPreserveFailedMachineMax > maximum if system components are not allowed", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: false}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(worker.Maximum + 1),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  Equal("workers[0].machineControllerManagerSettings.autoPreserveFailedMachineMax"),
+					"Detail": Equal("must not be greater than maximum value"),
+				}))))
+			})
+
+			It("should not allow setting autoPreserveFailedMachineMax > maximum -1 if system components are allowed", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: true}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(worker.Maximum + 1),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  Equal("workers[0].machineControllerManagerSettings.autoPreserveFailedMachineMax"),
+					"Detail": Equal("must not be greater than maximum-1 value when system components are allowed, need at least one machine to run system components"),
+				}))))
+			})
+
+			It("should allow setting autoPreserveFailedMachineMax to 0", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: true}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(int32(0)),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(BeEmpty())
+			})
+
+			It("should not allow setting autoPreserveFailedMachineMax to negative value", func() {
+				worker.SystemComponents = &core.WorkerSystemComponents{Allow: true}
+				worker.Maximum = 4
+				worker.MachineControllerManagerSettings = &core.MachineControllerManagerSettings{
+					AutoPreserveFailedMachineMax: new(int32(-1)),
+				}
+				errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, fldPath, false)
+				Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  Equal("workers[0].machineControllerManagerSettings.autoPreserveFailedMachineMax"),
+					"Detail": Equal("must not be negative"),
+				}))))
+			})
+		})
+	})
+	It("should fail when priority is set to value less than -1", func() {
+		worker := core.Worker{
+			Name: "worker",
+			Machine: core.Machine{
+				Type: "xlarge",
+				Image: &core.ShootMachineImage{
+					Name:    "image-name",
+					Version: "1.0.0",
+				},
+			},
+			MaxUnavailable: new(intstr.FromInt(1)),
+			Priority:       new(int32(-2)),
+		}
+
+		errList := ValidateWorker(worker, core.Kubernetes{Version: ""}, shootNamespace, providerType, nil, false)
+		Expect(errList).To(ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+			"Type":   Equal(field.ErrorTypeInvalid),
+			"Field":  Equal("priority"),
+			"Detail": Equal("can not be less than -1"),
+		}))))
+	})
+
+	DescribeTable("sysctl setting validation", func(sysctls map[string]string, matcher gomegatypes.GomegaMatcher) {
+		errList := ValidateSysctls(sysctls, field.NewPath("sysctls"))
+		Expect(errList).To(matcher)
+	},
+		Entry("accept valid sysctl keys",
+			map[string]string{
+				"foo.bar":                        "123",
+				"fs.aio-nr":                      "192",
+				"fs.binfmt_misc.python3/13":      "enabled",
+				"net.ipv4.conf.eth0.forwarding":  "1",
+				"net.ipv4.tcp_mem":               "374874	499832	749748",
+				"-net.ipv4.conf.all.proxy_arp":   "0",
+				"net.ipv4.conf.*.route_localnet": "1",
+			},
+			BeEmpty(),
+		),
+		Entry("reject invalid sysctl keys not matching regex",
+			map[string]string{
+				".foo.bar":   "123",
+				"foo..bar":   "abc",
+				"foo.bar.":   "123",
+				"foo.bar_":   "abc",
+				"foo.bar/":   "123",
+				"foo.bar-":   "abc",
+				"foo\"bar":   "123",
+				"foo=bar":    "abc",
+				"foo;bar":    "123",
+				"foo.**.bar": "abc",
+				"foo.bar*":   "123",
+				"foo.bar.*":  "abc",
+				"_foo.bar":   "123",
+				"/foo.bar":   "abc",
+			}, SatisfyAll(
+				HaveLen(14),
+				HaveEach(PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeInvalid),
+					"Field":  ContainSubstring("sysctls."),
+					"Detail": ContainSubstring("sysctl key must must match regex"),
 				}))),
 			),
-			Entry("reject empty sysctl values",
-				map[string]string{
-					"foo": "",
-				}, ConsistOf(
-					PointTo(MatchFields(IgnoreExtras, Fields{
-						"Type":  Equal(field.ErrorTypeRequired),
-						"Field": Equal("sysctls.foo"),
-					})),
-				),
+		),
+		Entry("reject sysctl keys with too long subkeys",
+			map[string]string{
+				func(size int) string {
+					// create a very long string
+					var b strings.Builder
+					for range size {
+						fmt.Fprint(&b, "s")
+					}
+					return b.String()
+				}(256): "abc",
+			}, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+				"Type":   Equal(field.ErrorTypeInvalid),
+				"Field":  ContainSubstring("sysctls.sss"),
+				"Detail": Equal("sub key of sysctl must not exceed 255 bytes"),
+			}))),
+		),
+		Entry("reject empty sysctl values",
+			map[string]string{
+				"foo": "",
+			}, ConsistOf(
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":  Equal(field.ErrorTypeRequired),
+					"Field": Equal("sysctls.foo"),
+				})),
 			),
-		)
-	})
+		),
+	)
 
 	Describe("#ValidateWorkers", func() {
 		It("should succeed checking workers", func() {
@@ -10109,6 +10417,34 @@ var _ = Describe("Shoot Validation Tests", func() {
 				))
 			})
 		})
+	})
+
+	Describe("#ValidateHibernation", func() {
+		DescribeTable("validate hibernation",
+			func(hibernation *core.Hibernation, annotations map[string]string, isSelfHosted bool, matcher gomegatypes.GomegaMatcher) {
+				Expect(ValidateHibernation(annotations, hibernation, isSelfHosted, nil)).To(matcher)
+			},
+			Entry("nil hibernation", nil, nil, false, BeEmpty()),
+			Entry("hosted hibernation", &core.Hibernation{Enabled: new(true)}, nil, false, BeEmpty()),
+			Entry("self-hosted hibernation", &core.Hibernation{Enabled: new(true)}, nil, true, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+				"Type":   Equal(field.ErrorTypeForbidden),
+				"Detail": Equal("hibernation is not supported for self-hosted shoots"),
+			})))),
+			Entry("forbidden annotation", &core.Hibernation{Enabled: new(true)}, map[string]string{"maintenance.gardener.cloud/operation": "rotate-credentials-start"}, false, ConsistOf(PointTo(MatchFields(IgnoreExtras, Fields{
+				"Type":   Equal(field.ErrorTypeForbidden),
+				"Detail": Equal("shoot cannot be hibernated when maintenance.gardener.cloud/operation annotation contains rotate-credentials-start operation"),
+			})))),
+			Entry("multiple forbidden annotations", &core.Hibernation{Enabled: new(true)}, map[string]string{"maintenance.gardener.cloud/operation": "rotate-etcd-encryption-key;rotate-serviceaccount-key-start"}, false, ConsistOf(
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeForbidden),
+					"Detail": Equal("shoot cannot be hibernated when maintenance.gardener.cloud/operation annotation contains rotate-etcd-encryption-key operation"),
+				})),
+				PointTo(MatchFields(IgnoreExtras, Fields{
+					"Type":   Equal(field.ErrorTypeForbidden),
+					"Detail": Equal("shoot cannot be hibernated when maintenance.gardener.cloud/operation annotation contains rotate-serviceaccount-key-start operation"),
+				})),
+			)),
+		)
 	})
 
 	Describe("#ValidateHibernationSchedules", func() {

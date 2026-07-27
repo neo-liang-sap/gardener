@@ -21,7 +21,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
-	autoscalingv2beta1 "k8s.io/api/autoscaling/v2beta1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	policyv1 "k8s.io/api/policy/v1"
@@ -273,7 +272,7 @@ type Values struct {
 	MaxConcurrentTokenRequestorWorkers *int
 	// MaxConcurrentCSRApproverWorkers configures the number of worker threads for concurrent kubelet CSR approver reconciliations.
 	MaxConcurrentCSRApproverWorkers *int
-	// MaxConcurrentCSRApproverWorkers configures the number of worker threads for the network policy controller.
+	// MaxConcurrentNetworkPolicyWorkers configures the number of worker threads for the network policy controller.
 	MaxConcurrentNetworkPolicyWorkers *int
 	// NamePrefix is the prefix for the resource names.
 	NamePrefix string
@@ -1127,7 +1126,7 @@ func (r *resourceManager) ensureVPA(ctx context.Context) error {
 			Name:       r.values.NamePrefix + v1beta1constants.DeploymentNameGardenerResourceManager,
 		}
 		vpa.Spec.UpdatePolicy = &vpaautoscalingv1.PodUpdatePolicy{
-			UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+			UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 		}
 		vpa.Spec.ResourcePolicy = &vpaautoscalingv1.PodResourcePolicy{
 			ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -1922,7 +1921,7 @@ func NewHighAvailabilityConfigMutatingWebhook(namespaceSelector, objectSelector 
 			{
 				Rule: admissionregistrationv1.Rule{
 					APIGroups:   []string{autoscalingv2.GroupName},
-					APIVersions: []string{autoscalingv2beta1.SchemeGroupVersion.Version, autoscalingv2.SchemeGroupVersion.Version},
+					APIVersions: []string{autoscalingv2.SchemeGroupVersion.Version},
 					Resources:   []string{"horizontalpodautoscalers"},
 				},
 				Operations: []admissionregistrationv1.OperationType{

@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -51,7 +52,9 @@ const Name = "gardener-resource-manager"
 
 // NewCommand creates a new cobra.Command for running gardener-resource-manager.
 func NewCommand() *cobra.Command {
-	opts := &options{}
+	opts := &options{
+		extraTargetNamespaces: make([]string, 0),
+	}
 
 	cmd := &cobra.Command{
 		Use:   Name,
@@ -119,6 +122,9 @@ func run(ctx context.Context, log logr.Logger, cfg *resourcemanagerconfigv1alpha
 		Cache: cache.Options{
 			DefaultNamespaces: getCacheConfig(cfg.SourceClientConnection.Namespaces),
 			SyncPeriod:        &cfg.SourceClientConnection.CacheResyncPeriod.Duration,
+		},
+		Controller: controllerconfig.Controller{
+			CacheSyncTimeout: cfg.Controllers.CacheSyncTimeout.Duration,
 		},
 		HealthProbeBindAddress: net.JoinHostPort(cfg.Server.HealthProbes.BindAddress, strconv.Itoa(cfg.Server.HealthProbes.Port)),
 		Metrics: metricsserver.Options{

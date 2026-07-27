@@ -336,7 +336,7 @@ func ValidateShootSpec(meta metav1.ObjectMeta, spec *core.ShootSpec, opts shootV
 	allErrs = append(allErrs, validateNetworking(spec.Networking, workerless, fldPath.Child("networking"))...)
 	allErrs = append(allErrs, validateMaintenance(spec.Maintenance, fldPath.Child("maintenance"), workerless)...)
 	allErrs = append(allErrs, validateMonitoring(spec.Monitoring, fldPath.Child("monitoring"))...)
-	allErrs = append(allErrs, ValidateHibernation(meta.Annotations, spec.Hibernation, fldPath.Child("hibernation"))...)
+	allErrs = append(allErrs, ValidateHibernation(meta.Annotations, spec.Hibernation, helper.IsShootSelfHosted(spec.Provider.Workers), fldPath.Child("hibernation"))...)
 
 	if len(spec.Region) == 0 {
 		allErrs = append(allErrs, field.Required(fldPath.Child("region"), "must specify a region"))
@@ -399,6 +399,8 @@ func ValidateShootSpec(meta metav1.ObjectMeta, spec *core.ShootSpec, opts shootV
 		if meta.Namespace != v1beta1constants.GardenNamespace {
 			allErrs = append(allErrs, field.Invalid(field.NewPath("metadata", "namespace"), meta.Namespace, fmt.Sprintf("self-hosted shoots must be in the %q namespace", v1beta1constants.GardenNamespace)))
 		}
+
+		allErrs = append(allErrs, validateSelfHostedShootControlPlane(spec, fldPath)...)
 	}
 
 	if spec.SchedulerName != nil {
@@ -1597,6 +1599,7 @@ func ValidateClusterAutoscaler(autoScaler core.ClusterAutoscaler, kubernetesVers
 	allErrs = append(allErrs, ValidatePositiveDuration(autoScaler.MaxNodeGroupBackoffDuration, fldPath.Child("maxNodeGroupBackoffDuration"))...)
 	allErrs = append(allErrs, ValidatePositiveDuration(autoScaler.NodeGroupBackoffResetTimeout, fldPath.Child("nodeGroupBackoffResetTimeout"))...)
 	allErrs = append(allErrs, ValidatePositiveDuration(autoScaler.MaxBinpackingTime, fldPath.Child("maxBinpackingTime"))...)
+	allErrs = append(allErrs, ValidateControlPlaneAutoscaling(autoScaler.Autoscaling, corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("10m"), corev1.ResourceMemory: resource.MustParse("30M")}, fldPath.Child("autoscaling"))...)
 
 	return allErrs
 }
@@ -2361,7 +2364,7 @@ func ValidateWorker(worker core.Worker, kubernetes core.Kubernetes, shootNamespa
 	}
 
 	if worker.MachineControllerManagerSettings != nil {
-		allErrs = append(allErrs, ValidateMachineControllerManagerSettingsOptions(worker.MachineControllerManagerSettings, worker.UpdateStrategy, fldPath.Child("machineControllerManagerSettings"))...)
+		allErrs = append(allErrs, ValidateMachineControllerManagerSettingsOptions(worker.MachineControllerManagerSettings, worker.UpdateStrategy, worker.Maximum, helper.SystemComponentsAllowed(&worker), fldPath.Child("machineControllerManagerSettings"))...)
 	}
 
 	if worker.UpdateStrategy != nil {
@@ -2374,10 +2377,6 @@ func ValidateWorker(worker core.Worker, kubernetes core.Kubernetes, shootNamespa
 	}
 
 	if worker.ControlPlane != nil {
-		if worker.Minimum != worker.Maximum || worker.Minimum != 1 {
-			allErrs = append(allErrs, field.Invalid(fldPath.Child("minimum"), worker.Minimum, "self-hosted shoots only support minimum=maximum=1 for the control plane worker pool (might change in the future)"))
-		}
-
 		allErrs = append(allErrs, ValidateWorkerControlPlane(worker.ControlPlane, shootNamespace, shootProviderType, fldPath.Child("controlPlane"))...)
 	}
 
@@ -2402,7 +2401,7 @@ func validateVolumeName(name string, fldPath *field.Path) field.ErrorList {
 }
 
 // ValidateMachineControllerManagerSettingsOptions validates the machine controller manager setting options of worker pools
-func ValidateMachineControllerManagerSettingsOptions(mcmOptions *core.MachineControllerManagerSettings, machineUpdateStrategy *core.MachineUpdateStrategy, fldPath *field.Path) field.ErrorList {
+func ValidateMachineControllerManagerSettingsOptions(mcmOptions *core.MachineControllerManagerSettings, machineUpdateStrategy *core.MachineUpdateStrategy, maximum int32, systemComponentsAllowed bool, fldPath *field.Path) field.ErrorList {
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, ValidatePositiveDuration(mcmOptions.MachineDrainTimeout, fldPath.Child("machineDrainTimeout"))...)
@@ -2421,6 +2420,19 @@ func ValidateMachineControllerManagerSettingsOptions(mcmOptions *core.MachineCon
 		}
 		if ptr.Deref(mcmOptions.DisableHealthTimeout, false) {
 			allErrs = append(allErrs, field.Forbidden(fldPath.Child("disableHealthTimeout"), "can only be set to true when the update strategy is `AutoInPlaceUpdate` or `ManualInPlaceUpdate`"))
+		}
+	}
+
+	allErrs = append(allErrs, ValidatePositiveDuration(mcmOptions.MachinePreserveTimeout, fldPath.Child("machinePreserveTimeout"))...)
+
+	if mcmOptions.AutoPreserveFailedMachineMax != nil {
+		autoPreserveFailedMachineMax := *mcmOptions.AutoPreserveFailedMachineMax
+		if autoPreserveFailedMachineMax < 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("autoPreserveFailedMachineMax"), autoPreserveFailedMachineMax, "must not be negative"))
+		} else if systemComponentsAllowed && maximum > 0 && (autoPreserveFailedMachineMax > (maximum - 1)) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("autoPreserveFailedMachineMax"), autoPreserveFailedMachineMax, "must not be greater than maximum-1 value when system components are allowed, need at least one machine to run system components"))
+		} else if autoPreserveFailedMachineMax > (maximum) {
+			allErrs = append(allErrs, field.Invalid(fldPath.Child("autoPreserveFailedMachineMax"), autoPreserveFailedMachineMax, "must not be greater than maximum value"))
 		}
 	}
 
@@ -2880,11 +2892,15 @@ func ValidateSystemComponentWorkers(workers []core.Worker, fldPath *field.Path) 
 }
 
 // ValidateHibernation validates a Hibernation object.
-func ValidateHibernation(annotations map[string]string, hibernation *core.Hibernation, fldPath *field.Path) field.ErrorList {
+func ValidateHibernation(annotations map[string]string, hibernation *core.Hibernation, isSelfHosted bool, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
 
 	if hibernation == nil {
 		return allErrs
+	}
+
+	if isSelfHosted {
+		return append(allErrs, field.Forbidden(fldPath, "hibernation is not supported for self-hosted shoots"))
 	}
 
 	for _, op := range v1beta1helper.GetShootMaintenanceOperations(annotations) {
@@ -3182,6 +3198,7 @@ func validateShootOperation(operations, maintenanceOperations []string, shoot *c
 		allErrs            = field.ErrorList{}
 		encryptedResources = sets.New[schema.GroupResource]()
 		k8sLess134         = versionutils.ConstraintK8sLess134.CheckVersion(shoot.Spec.Kubernetes.Version)
+		isSelfHosted       = helper.IsShootSelfHosted(shoot.Spec.Provider.Workers)
 	)
 
 	if len(operations) == 0 && len(maintenanceOperations) == 0 {
@@ -3193,6 +3210,8 @@ func validateShootOperation(operations, maintenanceOperations []string, shoot *c
 			return append(allErrs, field.NotSupported(fldPathOp, op, sets.List(availableShootOperations)))
 		} else if len(operations) > 1 && !availableShootOperationsToRunInParallel.Has(op) && !strings.HasPrefix(op, v1beta1constants.OperationRotateRolloutWorkers) && !strings.HasPrefix(op, v1beta1constants.OperationRolloutWorkers) {
 			return append(allErrs, field.Forbidden(fldPathOp, fmt.Sprintf("operation '%s' is not permitted to be run in parallel with other operations", op)))
+		} else if isSelfHosted && !helper.HasManagedInfrastructure(shoot) && (strings.HasPrefix(op, v1beta1constants.OperationRotateRolloutWorkers) || strings.HasPrefix(op, v1beta1constants.OperationRolloutWorkers)) {
+			return append(allErrs, field.Forbidden(fldPathOp, fmt.Sprintf("operation '%s' is not permitted for self-hosted shoot clusters with unmanaged infrastructure", op)))
 		}
 	}
 
@@ -3201,6 +3220,8 @@ func validateShootOperation(operations, maintenanceOperations []string, shoot *c
 			return append(allErrs, field.NotSupported(fldPathMaintOp, op, sets.List(availableShootOperations)))
 		} else if len(maintenanceOperations) > 1 && !availableShootOperationsToRunInParallel.Has(op) && !strings.HasPrefix(op, v1beta1constants.OperationRotateRolloutWorkers) && !strings.HasPrefix(op, v1beta1constants.OperationRolloutWorkers) {
 			return append(allErrs, field.Forbidden(fldPathMaintOp, fmt.Sprintf("operation '%s' is not permitted to be run in parallel with other operations", op)))
+		} else if isSelfHosted && !helper.HasManagedInfrastructure(shoot) && (strings.HasPrefix(op, v1beta1constants.OperationRotateRolloutWorkers) || strings.HasPrefix(op, v1beta1constants.OperationRolloutWorkers)) {
+			return append(allErrs, field.Forbidden(fldPathMaintOp, fmt.Sprintf("operation '%s' is not permitted for self-hosted shoot clusters with unmanaged infrastructure", op)))
 		}
 	}
 
@@ -3580,6 +3601,48 @@ func ValidateShootHAConfig(shoot *core.Shoot) field.ErrorList {
 func ValidateShootHAConfigUpdate(newShoot, oldShoot *core.Shoot) field.ErrorList {
 	allErrs := field.ErrorList{}
 	allErrs = append(allErrs, validateShootHAControlPlaneSpecUpdate(newShoot, oldShoot, field.NewPath("spec.controlPlane"))...)
+	return allErrs
+}
+
+func validateSelfHostedShootControlPlane(spec *core.ShootSpec, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	controlPlaneWorker := helper.ControlPlaneWorkerPoolForShoot(spec.Provider.Workers)
+	if controlPlaneWorker == nil {
+		return allErrs
+	}
+
+	controlPlaneWorkerIdx := slices.IndexFunc(spec.Provider.Workers, func(w core.Worker) bool { return w.ControlPlane != nil })
+	workerPath := fldPath.Child("provider", "workers").Index(controlPlaneWorkerIdx)
+
+	// TODO(scheererj): Remove restriction controlPlaneWorker.Minimum != 1 with support for high availability
+	if controlPlaneWorker.Minimum != controlPlaneWorker.Maximum || controlPlaneWorker.Minimum != 1 {
+		allErrs = append(allErrs, field.Invalid(workerPath.Child("minimum"), controlPlaneWorker.Minimum, "self-hosted shoots only support minimum=maximum=1 for the control plane worker pool (might change in the future)"))
+	}
+
+	if spec.ControlPlane == nil || spec.ControlPlane.HighAvailability == nil {
+		if controlPlaneWorker.Maximum != 1 {
+			allErrs = append(allErrs, field.Invalid(workerPath.Child("maximum"), controlPlaneWorker.Maximum, "control plane worker pool must have maximum=1 when high availability is not configured"))
+		}
+		return allErrs
+	}
+
+	if controlPlaneWorker.Maximum != 3 {
+		allErrs = append(allErrs, field.Invalid(workerPath.Child("maximum"), controlPlaneWorker.Maximum, "control plane worker pool must have maximum=3 when high availability is configured"))
+	}
+
+	if controlPlaneWorker.MaxSurge == nil || controlPlaneWorker.MaxSurge.IntValue() != 1 {
+		allErrs = append(allErrs, field.Invalid(workerPath.Child("maxSurge"), controlPlaneWorker.MaxSurge, "control plane worker pool must have maxSurge=1 when high availability is configured"))
+	}
+
+	if controlPlaneWorker.MaxUnavailable == nil || controlPlaneWorker.MaxUnavailable.IntValue() != 1 {
+		allErrs = append(allErrs, field.Invalid(workerPath.Child("maxUnavailable"), controlPlaneWorker.MaxUnavailable, "control plane worker pool must have maxUnavailable=1 when high availability is configured"))
+	}
+
+	if spec.ControlPlane.HighAvailability.FailureTolerance.Type == core.FailureToleranceTypeZone && len(controlPlaneWorker.Zones) != 3 {
+		allErrs = append(allErrs, field.Invalid(workerPath.Child("zones"), controlPlaneWorker.Zones, "control plane worker pool must have exactly 3 zones when failure tolerance type is zone"))
+	}
+
 	return allErrs
 }
 

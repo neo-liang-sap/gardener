@@ -5,7 +5,6 @@
 [![REUSE status](https://api.reuse.software/badge/github.com/gardener/gardener)](https://api.reuse.software/info/github.com/gardener/gardener)
 [![Build](https://github.com/gardener/gardener/actions/workflows/non-release.yaml/badge.svg)](https://github.com/gardener/gardener/actions/workflows/non-release.yaml)
 [![Slack workspace](https://img.shields.io/badge/Slack-Gardener%20Project-brightgreen.svg?logo=slack)](https://gardener-cloud.slack.com/)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gardener/gardener)](https://goreportcard.com/report/github.com/gardener/gardener)
 [![GoDoc](https://godoc.org/github.com/gardener/gardener?status.svg)](https://godoc.org/github.com/gardener/gardener)
 [![CII Best Practices](https://bestpractices.coreinfrastructure.org/projects/1822/badge)](https://bestpractices.coreinfrastructure.org/projects/1822)
 
@@ -51,17 +50,11 @@ Continuous conformance test results of the latest stable Gardener release are up
 
 Get an overview of the test results at [testgrid](https://testgrid.k8s.io/conformance-gardener).
 
-## Quickstart with the demo environment
-
-Check out our [Gardener demo environment](https://demo.gardener.cloud)!
-
-It is a preconfigured playground which includes lots of tutorials and examples to get you started with Gardener.
-
-## Start using or developing the Gardener locally
+## Start Using or Developing Gardener Locally
 
 See our documentation in the `/docs` repository, please [find the index here](docs/README.md).
 
-## Setting up your own Gardener landscape
+## Set Up Your Own Gardener Landscape
 
 Bootstrapping and maintaining a Gardener landscape has never been easier. Check out our [Gardener landscape setup guide](docs/deployment/setup_gardener.md) to learn about the operator and other key concepts.
 

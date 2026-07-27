@@ -794,6 +794,9 @@ type ClusterAutoscaler struct {
 	// If binpacking is limited by this, scale-up continues with the already calculated scale-up options (default: 5m).
 	// +optional
 	MaxBinpackingTime *metav1.Duration `json:"maxBinpackingTime,omitempty" protobuf:"bytes,23,opt,name=maxBinpackingTime"`
+	// Autoscaling contains auto-scaling configuration options for the cluster-autoscaler.
+	// +optional
+	Autoscaling *ControlPlaneAutoscaling `json:"autoscaling,omitempty" protobuf:"bytes,24,opt,name=autoscaling"`
 }
 
 // ExpanderMode is type used for Expander values
@@ -1897,6 +1900,17 @@ type MachineControllerManagerSettings struct {
 	// This is intended to be used only for in-place updates.
 	// +optional
 	DisableHealthTimeout *bool `json:"disableHealthTimeout,omitempty" protobuf:"varint,7,opt,name=disableHealthTimeout"`
+	// MachinePreserveTimeout defines the duration after which machine preservation is disabled.
+	// If preservation is disabled while the machine is in the Failed phase, the machine transitions
+	// to the Terminating phase. For machines in any other phase, disabling preservation does not
+	// alter the current phase, and normal behavior and phase transitions continue as usual.
+	// However, the Cluster Autoscaler (CA) may scale down the machine if required.
+	// +optional
+	MachinePreserveTimeout *metav1.Duration `json:"machinePreserveTimeout,omitempty" protobuf:"bytes,8,opt,name=machinePreserveTimeout"`
+	// AutoPreserveFailedMachineMax is the maximum number of machines that can be auto-preserved by MCM for the worker pool.
+	// This value is distributed across zones like Minimum and Maximum.
+	// +optional
+	AutoPreserveFailedMachineMax *int32 `json:"autoPreserveFailedMachineMax,omitempty" protobuf:"varint,9,opt,name=autoPreserveFailedMachineMax"`
 }
 
 // WorkerSystemComponents contains configuration for system components related to this worker pool
@@ -2133,6 +2147,10 @@ const (
 	// ShootManualInPlaceWorkersUpdated is a constant for a condition type indicating that the Shoot cluster does not have
 	// any worker pools with update strategy "ManualInPlaceUpdate" and pending update.
 	ShootManualInPlaceWorkersUpdated ConditionType = "ManualInPlaceWorkersUpdated"
+	// ShootHasIgnoredManagedResources is a constant for a condition type indicating that one or more ManagedResources
+	// in the Shoot's control plane namespace in the seed have been annotated with resources.gardener.cloud/ignore=true,
+	// meaning their reconciliation has been disabled. Operators should be aware of such resources as they may diverge from the desired state.
+	ShootHasIgnoredManagedResources ConditionType = "HasIgnoredManagedResources"
 	// ShootReadyForMigration is a constant for a condition type indicating whether the Shoot can be migrated.
 	ShootReadyForMigration ConditionType = "ReadyForMigration"
 	// ShootDualStackNodesMigrationReady is a constant for a condition type indicating whether all nodes are migrated to dual-stack .
@@ -2141,6 +2159,9 @@ const (
 	ShootDNSServiceMigrationReady ConditionType = "DNSServiceMigrationReady"
 	// ShootUsesUnifiedHTTPProxyPort is a constant for a condition type indicating whether the new http-proxy port is consumed from istio.
 	ShootUsesUnifiedHTTPProxyPort ConditionType = "UsesUnifiedHTTPProxyPort"
+	// ShootPreservedFailedMachinesAbsent is a constant for a condition type indicating that the Shoot cluster no preserved failed machines.
+	ShootPreservedFailedMachinesAbsent ConditionType = "PreservedFailedMachinesAbsent"
+
 	// ShootLiveMigrationSourceEtcdPreparedForPeerJoin indicates that the source etcd cluster
 	// is prepared for destination peers to join.
 	ShootLiveMigrationSourceEtcdPreparedForPeerJoin ConditionType = "SourceEtcdPreparedForPeerJoin"

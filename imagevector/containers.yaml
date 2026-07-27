@@ -54,7 +54,7 @@ images:
   - name: gardener-dashboard
     sourceRepository: github.com/gardener/dashboard
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/dashboard
-    tag: "1.84.3"
+    tag: "1.84.4"
   - name: terminal-controller-manager
     sourceRepository: github.com/gardener/terminal-controller-manager
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/terminal-controller-manager
@@ -74,7 +74,7 @@ images:
   - name: etcd-druid
     sourceRepository: github.com/gardener/etcd-druid
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/etcd-druid
-    tag: "v0.36.4"
+    tag: "v0.37.1"
   - name: etcd
     sourceRepository: github.com/etcd-io/etcd
     repository: gcr.io/etcd-development/etcd
@@ -130,7 +130,7 @@ images:
   - name: machine-controller-manager
     sourceRepository: github.com/gardener/machine-controller-manager
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/machine-controller-manager
-    tag: "v0.61.3"
+    tag: "v0.62.1"
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -167,12 +167,12 @@ images:
   - name: vpn-server
     sourceRepository: github.com/gardener/vpn2
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/vpn-server
-    tag: "0.50.1"
+    tag: "0.51.0"
   # OpenTelemetry
   - name: opentelemetry-operator
     sourceRepository: github.com/open-telemetry/opentelemetry-operator
     repository: europe-docker.pkg.dev/gardener-project/releases/3rd/opentelemetry-operator/opentelemetry-operator
-    tag: "v0.153.0"
+    tag: "v0.156.0"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -211,7 +211,7 @@ images:
   - name: prometheus-operator
     sourceRepository: github.com/prometheus-operator/prometheus-operator
     repository: quay.io/prometheus-operator/prometheus-operator
-    tag: v0.91.0
+    tag: v0.92.1
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -228,7 +228,7 @@ images:
   - name: alertmanager
     sourceRepository: github.com/prometheus/alertmanager
     repository: quay.io/prometheus/alertmanager
-    tag: v0.33.0
+    tag: v0.33.1
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -245,7 +245,7 @@ images:
   - name: prometheus
     sourceRepository: github.com/prometheus/prometheus
     repository: quay.io/prometheus/prometheus
-    tag: v3.12.0
+    tag: v3.13.1
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -262,7 +262,7 @@ images:
   - name: configmap-reloader
     sourceRepository: github.com/prometheus-operator/prometheus-operator
     repository: quay.io/prometheus-operator/prometheus-config-reloader
-    tag: v0.91.0
+    tag: v0.92.1
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -312,13 +312,13 @@ images:
   - name: gardener-metrics-exporter
     sourceRepository: github.com/gardener/gardener-metrics-exporter
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/metrics-exporter
-    tag: "0.44.0"
+    tag: "0.45.0"
     resourceId:
       name: metrics-exporter
   - name: node-exporter
     sourceRepository: github.com/prometheus/node_exporter
     repository: quay.io/prometheus/node-exporter
-    tag: v1.11.1
+    tag: v1.12.1
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -336,7 +336,7 @@ images:
   - name: plutono
     sourceRepository: github.com/credativ/plutono
     repository: europe-docker.pkg.dev/gardener-project/releases/3rd/credativ/plutono
-    tag: "v7.5.49"
+    tag: "v7.5.50"
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -353,7 +353,7 @@ images:
   - name: plutono-data-refresher
     sourceRepository: github.com/kiwigrid/k8s-sidecar
     repository: quay.io/kiwigrid/k8s-sidecar
-    tag: "2.7.4"
+    tag: "2.9.0"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -388,7 +388,26 @@ images:
   - name: metrics-server
     sourceRepository: github.com/kubernetes-sigs/metrics-server
     repository: registry.k8s.io/metrics-server/metrics-server
+    tag: v0.9.0
+    targetVersion: ">= 1.34"
+    labels:
+      - name: gardener.cloud/cve-categorisation
+        value:
+          network_exposure: private
+          authentication_enforced: false
+          user_interaction: gardener-operator
+          confidentiality_requirement: high
+          integrity_requirement: high
+          availability_requirement: low
+      - name: 'cloud.gardener.cnudie/responsibles'
+        value:
+          - type: 'githubTeam'
+            teamname: 'gardener/monitoring-maintainers'
+  - name: metrics-server
+    sourceRepository: github.com/kubernetes-sigs/metrics-server
+    repository: registry.k8s.io/metrics-server/metrics-server
     tag: v0.8.1
+    targetVersion: ">= 1.31 < 1.34"
     labels:
       - name: gardener.cloud/cve-categorisation
         value:
@@ -457,11 +476,11 @@ images:
   - name: vpn-client
     sourceRepository: github.com/gardener/vpn2
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/vpn-client
-    tag: "0.50.1"
+    tag: "0.51.0"
   - name: coredns
     sourceRepository: github.com/coredns/coredns
     repository: registry.k8s.io/coredns/coredns
-    tag: "v1.14.4"
+    tag: "v1.14.6"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -513,7 +532,25 @@ images:
   - name: node-problem-detector
     sourceRepository: github.com/kubernetes/node-problem-detector
     repository: registry.k8s.io/node-problem-detector/node-problem-detector
-    tag: "v1.35.2"
+    tag: "v1.36.0"
+    targetVersion: ">= 1.36"
+    labels:
+      - name: 'gardener.cloud/cve-categorisation'
+        value:
+          network_exposure: 'private'
+          authentication_enforced: false
+          user_interaction: 'end-user'
+          confidentiality_requirement: 'low'
+          integrity_requirement: 'high'
+          availability_requirement: 'low'
+      - name: 'cloud.gardener.cnudie/responsibles'
+        value:
+          - type: 'githubTeam'
+            teamname: 'gardener/mcm-maintainers'
+  - name: node-problem-detector
+    sourceRepository: github.com/kubernetes/node-problem-detector
+    repository: registry.k8s.io/node-problem-detector/node-problem-detector
+    tag: "v1.35.3"
     targetVersion: ">= 1.35"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
@@ -531,7 +568,7 @@ images:
   - name: node-problem-detector
     sourceRepository: github.com/kubernetes/node-problem-detector
     repository: registry.k8s.io/node-problem-detector/node-problem-detector
-    tag: "v1.34.3"
+    tag: "v1.34.4"
     targetVersion: ">= 1.34"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
@@ -585,11 +622,11 @@ images:
   - name: alpine-conntrack
     sourceRepository: github.com/gardener/alpine-conntrack
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/alpine-conntrack
-    tag: "3.23.3"
+    tag: "3.24.1"
   - name: alpine-iptables
     sourceRepository: github.com/gardener/alpine-iptables
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/alpine-iptables
-    tag: "3.23.3"
+    tag: "3.24.1"
   # Logging
   - name: fluent-operator
     sourceRepository: github.com/fluent/fluent-operator
@@ -668,7 +705,7 @@ images:
   - name: vali
     sourceRepository: github.com/credativ/vali
     repository: europe-docker.pkg.dev/gardener-project/releases/3rd/credativ/vali
-    tag: "v2.2.34"
+    tag: "v2.2.35"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -702,7 +739,7 @@ images:
   - name: kube-rbac-proxy
     sourceRepository: github.com/brancz/kube-rbac-proxy
     repository: quay.io/brancz/kube-rbac-proxy
-    tag: v0.22.0
+    tag: v0.22.1
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -796,7 +833,7 @@ images:
   - name: vpa-admission-controller
     sourceRepository: github.com/kubernetes/autoscaler
     repository: registry.k8s.io/autoscaling/vpa-admission-controller
-    tag: "1.7.0"
+    tag: "1.7.1"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -813,7 +850,7 @@ images:
   - name: vpa-recommender
     sourceRepository: github.com/kubernetes/autoscaler
     repository: registry.k8s.io/autoscaling/vpa-recommender
-    tag: "1.7.0"
+    tag: "1.7.1"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -830,7 +867,7 @@ images:
   - name: vpa-updater
     sourceRepository: github.com/kubernetes/autoscaler
     repository: registry.k8s.io/autoscaling/vpa-updater
-    tag: "1.7.0"
+    tag: "1.7.1"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -858,7 +895,7 @@ images:
   - name: pvc-autoscaler
     sourceRepository: github.com/gardener/pvc-autoscaler
     repository: europe-docker.pkg.dev/gardener-project/releases/gardener/pvc-autoscaler
-    tag: "v0.2.0"
+    tag: "v0.3.0"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -876,7 +913,7 @@ images:
   - name: istio-proxy
     sourceRepository: github.com/istio/istio
     repository: gcr.io/istio-release/proxyv2
-    tag: "1.29.4-distroless"
+    tag: "1.29.6-distroless"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -893,7 +930,7 @@ images:
   - name: istio-istiod
     sourceRepository: github.com/istio/istio
     repository: gcr.io/istio-release/pilot
-    tag: "1.29.4-distroless"
+    tag: "1.29.6-distroless"
     labels:
       - name: 'gardener.cloud/cve-categorisation'
         value:
@@ -917,7 +954,7 @@ images:
   - name: envoy-proxy
     sourceRepository: github.com/envoyproxy/envoy
     repository: europe-docker.pkg.dev/gardener-project/releases/3rd/envoyproxy/envoy
-    tag: "distroless-v1.38.2"
+    tag: "distroless-v1.39.0"
     resourceId:
       version-template:
         type: 'jq'
@@ -937,28 +974,28 @@ images:
             teamname: 'gardener/gardener-core-networking-maintainers'
       - name: 'cloud.gardener.cnudie/dso/scanning-hints/package-versions'
         value:
-          # https://www.envoyproxy.io/docs/envoy/v1.37.0/intro/arch_overview/security/external_deps
+          # https://www.envoyproxy.io/docs/envoy/v1.39.0/intro/arch_overview/security/external_deps
           - name: 'v8'
-            version: '13.8.258.26'
+            version: '14.6.202.10'
           - name: 'grpc'
-            version: '1.76.0'
+            version: '1.81.1'
           - name: 'luajit'
             version: '871db2c'
           - name: 'nghttp2'
             version: '1.66.0'
           - name: 'protobuf'
-            version: '33.2'
+            version: '35.1'
           - name: 'fmt'
             version: '12.1.0'
           - name: 'boringssl'
-            version: '0.20250514.0'
+            version: '0.20260413.0'
           # lua version is unclear. lua runtime is luajit.
           # luajit is compatible with lua 5.1 but contains feature of lua 5.2 and 5.3
           # https://luajit.org/extensions.html
           - name: 'lua'
             version: '5.1'
           - name: 'yaml-cpp'
-            version: '0.8.0'
+            version: '0.9.0'
           - name: 'c-ares'
             version: '1.34.6'
   - name: apiserver-proxy-sidecar

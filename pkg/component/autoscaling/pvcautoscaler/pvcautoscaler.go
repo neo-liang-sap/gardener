@@ -417,7 +417,7 @@ func (p *pvcAutoscaler) verticalPodAutoscaler() *vpaautoscalingv1.VerticalPodAut
 				Name:       v1beta1constants.DeploymentNamePVCAutoscaler,
 			},
 			UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-				UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+				UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 			},
 			ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 				ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -445,12 +445,17 @@ func (p *pvcAutoscaler) serviceMonitor() *monitoringv1.ServiceMonitor {
 			Selector: metav1.LabelSelector{MatchLabels: getLabels()},
 			Endpoints: []monitoringv1.Endpoint{{
 				Port: metricsPortName,
-				MetricRelabelConfigs: monitoringutils.StandardMetricRelabelConfig(
-					"pvc_autoscaler_resized_total",
-					"pvc_autoscaler_threshold_reached_total",
-					"pvc_autoscaler_max_capacity_reached_total",
-					"pvc_autoscaler_skipped_total",
-				),
+				RelabelConfigs: []monitoringv1.RelabelConfig{
+					{
+						SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_container_port_name"},
+						Regex:        metricsPortName,
+						Action:       "keep",
+					},
+					{
+						Action: "labelmap",
+						Regex:  `__meta_kubernetes_pod_label_(.+)`,
+					},
+				},
 			}},
 		},
 	}

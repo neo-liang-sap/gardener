@@ -32,8 +32,10 @@ import (
 	operatorv1alpha1 "github.com/gardener/gardener/pkg/apis/operator/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	"github.com/gardener/gardener/pkg/component"
+	"github.com/gardener/gardener/pkg/component/networking/istiobasicauthserver"
 	valiconstants "github.com/gardener/gardener/pkg/component/observability/logging/vali/constants"
 	"github.com/gardener/gardener/pkg/controllerutils"
+	"github.com/gardener/gardener/pkg/features"
 	"github.com/gardener/gardener/pkg/resourcemanager/controller/garbagecollector/references"
 	"github.com/gardener/gardener/pkg/utils"
 	gardenerutils "github.com/gardener/gardener/pkg/utils/gardener"
@@ -402,7 +404,9 @@ datasources:
 `
 	}
 
-	if !p.values.OnlyDeployDataSourcesAndDashboards {
+	if !p.values.OnlyDeployDataSourcesAndDashboards &&
+		(!features.DefaultFeatureGate.Enabled(features.VictoriaLogsBackend) ||
+			!features.DefaultFeatureGate.Enabled(features.RemoveVali)) {
 		datasource += `- name: vali
   type: vali
   access: proxy
@@ -793,23 +797,13 @@ func (p *plutono) getIstioResources(ctx context.Context) ([]client.Object, error
 	)
 
 	if p.values.IsGardenCluster {
-		credentialsSecret, found := p.secretsManager.Get(v1beta1constants.SecretNameObservabilityIngress)
-		if !found {
-			return nil, fmt.Errorf("secret %q not found", v1beta1constants.SecretNameObservabilityIngress)
-		}
-
-		credentialsSecretName = credentialsSecret.Name
+		credentialsSecretName = v1beta1constants.SecretNameObservabilityIngress
 		caName = operatorv1alpha1.SecretNameCARuntime
 		gatewayName = fmt.Sprintf("%s%s-%s", operatorv1alpha1.VirtualGardenNamePrefix, gatewayName, v1beta1constants.GardenNamespace)
 	}
 
 	if p.values.ClusterType == component.ClusterTypeShoot {
-		credentialsSecret, found := p.secretsManager.Get(v1beta1constants.SecretNameObservabilityIngressUsers)
-		if !found {
-			return nil, fmt.Errorf("secret %q not found", v1beta1constants.SecretNameObservabilityIngressUsers)
-		}
-
-		credentialsSecretName = credentialsSecret.Name
+		credentialsSecretName = v1beta1constants.SecretNameObservabilityIngressUsers
 		caName = v1beta1constants.SecretNameCACluster
 		gatewayName = fmt.Sprintf("%s-%s", gatewayName, p.namespace)
 	}
@@ -868,7 +862,7 @@ func (p *plutono) getIstioResources(ctx context.Context) ([]client.Object, error
 	virtualService := &istionetworkingv1beta1.VirtualService{ObjectMeta: metav1.ObjectMeta{Name: gatewayName, Namespace: p.namespace}}
 	if err := istio.VirtualServiceForTLSTermination(
 		virtualService,
-		utils.MergeStringMaps(getLabels(), map[string]string{v1beta1constants.LabelBasicAuthSecretName: credentialsSecretName}),
+		utils.MergeStringMaps(getLabels(), istiobasicauthserver.BasicAuthLabels(p.values.IsGardenCluster, credentialsSecretName)),
 		[]string{p.values.IstioIngressGatewayNamespace},
 		[]string{p.values.IngressHost},
 		gatewayName,

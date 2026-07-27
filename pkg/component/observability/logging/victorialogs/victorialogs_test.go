@@ -9,6 +9,7 @@ import (
 
 	victoriametricsv1 "github.com/VictoriaMetrics/operator/api/operator/v1"
 	victoriametricsv1beta1 "github.com/VictoriaMetrics/operator/api/operator/v1beta1"
+	pvcautoscalerv1alpha1 "github.com/gardener/pvc-autoscaler/api/autoscaling/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
@@ -49,9 +50,11 @@ var _ = Describe("VictoriaLogs", func() {
 	var (
 		ctx = context.Background()
 
-		image  = "europe-docker.pkg.dev/gardener-project/releases/some-image:some-tag"
-		values = Values{
-			Image: image,
+		imageRepository = "europe-docker.pkg.dev/gardener-project/releases/some-image"
+		imageTag        = "some-tag"
+		values          = Values{
+			ImageRepository: imageRepository,
+			ImageTag:        imageTag,
 		}
 
 		c         client.Client
@@ -150,7 +153,7 @@ var _ = Describe("VictoriaLogs", func() {
 					APIVersion: appsv1.SchemeGroupVersion.String(),
 				},
 				UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-					UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+					UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 				},
 				ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 					ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -215,6 +218,18 @@ var _ = Describe("VictoriaLogs", func() {
 	})
 
 	Describe("#Deploy", func() {
+		// TODO(rrhubenov): Remove this test once https://github.com/VictoriaMetrics/operator/pull/2401 is merged
+		// and we update to the release that includes it, together with the digest-only check in Deploy.
+		It("should return an error when the image reference is digest-only", func() {
+			for _, digestTag := range []string{
+				"sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				"sha512:ee26b0dd4af7e749aa1a8ee3c10ae9923f618980772e473f8819a5d4940e0db27ac185f8a0e1d5f84f88bc887fd67b143732c304cc5fa9ad8e6f57f50028a8ff",
+			} {
+				component = New(c, namespace, Values{ImageRepository: imageRepository, ImageTag: digestTag})
+				Expect(component.Deploy(ctx)).To(MatchError(ContainSubstring("digest-only image reference")))
+			}
+		})
+
 		It("should successfully deploy all resources for shoot cluster", func() {
 			Expect(c.Get(ctx, client.ObjectKeyFromObject(customResourcesManagedResource), customResourcesManagedResource)).To(BeNotFoundError())
 			Expect(c.Get(ctx, client.ObjectKeyFromObject(customResourcesManagedResourceSecret), customResourcesManagedResourceSecret)).To(BeNotFoundError())
@@ -257,11 +272,40 @@ var _ = Describe("VictoriaLogs", func() {
 			Expect(customResourcesManagedResourceSecret.Labels["resources.gardener.cloud/garbage-collectable-reference"]).To(Equal("true"))
 		})
 
+		DescribeTable("should successfully deploy all resources including the PersistentVolumeClaimAutoscaler when PVC autoscaler is enabled",
+			func(maxCapacity resource.Quantity) {
+				values = Values{
+					ImageRepository: imageRepository,
+					ImageTag:        imageTag,
+					PVCAutoscaling: PVCAutoscalingConfig{
+						Enabled:     true,
+						MaxCapacity: maxCapacity,
+					},
+				}
+				component = New(c, namespace, values)
+
+				Expect(component.Deploy(ctx)).To(Succeed())
+
+				Expect(c.Get(ctx, client.ObjectKeyFromObject(customResourcesManagedResource), customResourcesManagedResource)).To(Succeed())
+				customResourcesManagedResourceSecret.Name = customResourcesManagedResource.Spec.SecretRefs[0].Name
+				Expect(customResourcesManagedResource).To(consistOf(
+					vlSingle,
+					vpa,
+					serviceMonitor,
+					prometheusRule,
+					getPVCA(maxCapacity),
+				))
+			},
+			Entry("shoot max capacity", resource.MustParse("40Gi")),
+			Entry("seed max capacity", resource.MustParse("200Gi")),
+		)
+
 		Context("when deployed in seed cluster", func() {
 			BeforeEach(func() {
 				values = Values{
-					Image:       image,
-					ClusterType: componentpkg.ClusterTypeSeed,
+					ImageRepository: imageRepository,
+					ImageTag:        imageTag,
+					ClusterType:     componentpkg.ClusterTypeSeed,
 				}
 				component = New(c, namespace, values)
 			})
@@ -302,7 +346,8 @@ var _ = Describe("VictoriaLogs", func() {
 		Context("when deployed in garden cluster", func() {
 			BeforeEach(func() {
 				values = Values{
-					Image:           image,
+					ImageRepository: imageRepository,
+					ImageTag:        imageTag,
 					ClusterType:     componentpkg.ClusterTypeSeed,
 					IsGardenCluster: true,
 				}
@@ -343,8 +388,9 @@ var _ = Describe("VictoriaLogs", func() {
 		Context("when deployed in shoot cluster", func() {
 			BeforeEach(func() {
 				values = Values{
-					Image:       image,
-					ClusterType: componentpkg.ClusterTypeShoot,
+					ImageRepository: imageRepository,
+					ImageTag:        imageTag,
+					ClusterType:     componentpkg.ClusterTypeShoot,
 				}
 				component = New(c, namespace, values)
 			})
@@ -490,6 +536,33 @@ var _ = Describe("VictoriaLogs", func() {
 		})
 	})
 })
+
+func getPVCA(maxCapacity resource.Quantity) *pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscaler {
+	return &pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      victorialogsconstants.VLSingleResourceName,
+			Namespace: namespace,
+			Labels:    getLabels(),
+		},
+		Spec: pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscalerSpec{
+			TargetRef: autoscalingv1.CrossVersionObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
+				Name:       "vlsingle-" + victorialogsconstants.VLSingleResourceName,
+			},
+			VolumePolicies: []pvcautoscalerv1alpha1.VolumePolicy{
+				{
+					MaxCapacity: maxCapacity,
+					ScaleUp: &pvcautoscalerv1alpha1.ScalingRules{
+						UtilizationThresholdPercent: new(70),
+						StepPercent:                 new(10),
+						MinStepAbsolute:             new(resource.MustParse("1Gi")),
+					},
+				},
+			},
+		},
+	}
+}
 
 func getLabels() map[string]string {
 	return map[string]string{

@@ -1,5 +1,5 @@
 # builder
-FROM --platform=$BUILDPLATFORM golang:1.26.4 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.5 AS builder
 ARG GOPROXY=https://proxy.golang.org,direct
 ENV GOPROXY=$GOPROXY
 WORKDIR /go/src/github.com/gardener/gardener
@@ -10,7 +10,7 @@ ARG TARGETARCH
 RUN make build EFFECTIVE_VERSION=$EFFECTIVE_VERSION GOOS=$TARGETOS GOARCH=$TARGETARCH BUILD_OUTPUT_FILE="/output/bin/"
 
 # distroless-static
-FROM gcr.io/distroless/static-debian12:nonroot AS distroless-static
+FROM gcr.io/distroless/static-debian13:nonroot AS distroless-static
 
 # apiserver
 FROM distroless-static AS apiserver

@@ -2213,6 +2213,18 @@ boolean
 <p>MaxBinpackingTime is the maximum time spent on binpacking for a single scale-up.<br />If binpacking is limited by this, scale-up continues with the already calculated scale-up options (default: 5m).</p>
 </td>
 </tr>
+<tr>
+<td>
+<code>autoscaling</code></br>
+<em>
+<a href="#controlplaneautoscaling">ControlPlaneAutoscaling</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>Autoscaling contains auto-scaling configuration options for the cluster-autoscaler.</p>
+</td>
+</tr>
 
 </tbody>
 </table>
@@ -2542,7 +2554,7 @@ ControlPlane holds information about the general settings for the control plane 
 
 
 <p>
-(<em>Appears on:</em><a href="#etcdconfig">ETCDConfig</a>, <a href="#kubeapiserverconfig">KubeAPIServerConfig</a>)
+(<em>Appears on:</em><a href="#clusterautoscaler">ClusterAutoscaler</a>, <a href="#etcdconfig">ETCDConfig</a>, <a href="#kubeapiserverconfig">KubeAPIServerConfig</a>)
 </p>
 
 <p>
@@ -2752,6 +2764,18 @@ ControllerInstallationSpec is the specification of a ControllerInstallation.
 <td>
 <em>(Optional)</em>
 <p>DeploymentRef is used to reference a ControllerDeployment resource.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>resourceRefs</code></br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#objectreference-v1-core">ObjectReference</a> array
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ResourceRefs is used to reference Resource resources.</p>
 </td>
 </tr>
 
@@ -3079,6 +3103,18 @@ boolean
 <td>
 <em>(Optional)</em>
 <p>ClusterCompatibility defines the compatibility of this resource with different cluster types.<br />If compatibility is not specified, it will be defaulted to 'shoot'.<br />This field can only be set for resources of kind "Extension".</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>continuousEndpointUpdate</code></br>
+<em>
+boolean
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>ContinuousEndpointUpdate indicates whether the extension requires the SelfHostedShootExposure endpoints to be continuously<br />updated with healthy/valid control plane endpoints.</p>
 </td>
 </tr>
 
@@ -7325,6 +7361,30 @@ boolean
 <td>
 <em>(Optional)</em>
 <p>DisableHealthTimeout if set to true, health timeout will be ignored. Leading to machine never being declared failed.<br />This is intended to be used only for in-place updates.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>machinePreserveTimeout</code></br>
+<em>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.33/#duration-v1-meta">Duration</a>
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>MachinePreserveTimeout defines the duration after which machine preservation is disabled.<br />If preservation is disabled while the machine is in the Failed phase, the machine transitions<br />to the Terminating phase. For machines in any other phase, disabling preservation does not<br />alter the current phase, and normal behavior and phase transitions continue as usual.<br />However, the Cluster Autoscaler (CA) may scale down the machine if required.</p>
+</td>
+</tr>
+<tr>
+<td>
+<code>autoPreserveFailedMachineMax</code></br>
+<em>
+integer
+</em>
+</td>
+<td>
+<em>(Optional)</em>
+<p>AutoPreserveFailedMachineMax is the maximum number of machines that can be auto-preserved by MCM for the worker pool.<br />This value is distributed across zones like Minimum and Maximum.</p>
 </td>
 </tr>
 

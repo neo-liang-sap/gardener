@@ -330,6 +330,9 @@ const (
 	GardenRoleOCICABundle = "oci-ca-bundle"
 	// GardenRoleObservability is the value of the GardenRole key indicating type 'observability'.
 	GardenRoleObservability = "observability"
+	// GardenRoleResourceReference is the value of the GardenRole key indicating type 'resource-reference'.
+	// It refers to a Secret or ConfigMap which can be used as a resource reference in the Helm charts of extensions and controller deployments.
+	GardenRoleResourceReference = "resource-reference"
 
 	// ShootUID is an annotation key for the shoot namespace in the seed cluster,
 	// which value will be the value of `shoot.status.uid`
@@ -540,6 +543,8 @@ const (
 	LabelObservability = "observability"
 	// LabelBasicAuthSecretName is a constant for a label used on virtual services to include the referenced secret into the istio-basic-auth-server for basic auth.
 	LabelBasicAuthSecretName = "reference.gardener.cloud/basic-auth-secret-name"
+	// LabelBasicAuthServerName is a constant for a label used on virtual services to associate them with a specific istio-basic-auth-server instance.
+	LabelBasicAuthServerName = "reference.gardener.cloud/basic-auth-server-name"
 
 	// LabelExtensionExtensionTypePrefix is used to prefix extension label for extension types.
 	LabelExtensionExtensionTypePrefix = "extensions.extensions.gardener.cloud/"
@@ -670,17 +675,12 @@ const (
 	// LabelShootUID is a constant for a label key that indicates a relationship to a shoot with the specified UID.
 	LabelShootUID = "shoot.gardener.cloud/uid"
 
-	// LabelPublicKeys is a constant for a label key that indicates that a resource contains public keys.
-	//
-	// Deprecated: Use LabelDiscoveryPublic instead.
-	LabelPublicKeys = "authentication.gardener.cloud/public-keys" // TODO(dimityrmirchev): Deprecate in favour of LabelDiscoveryPublic
-	// LabelPublicKeysServiceAccount is a constant for a label value that indicates that a resource contains service account public keys.
-	LabelPublicKeysServiceAccount = "serviceaccount"
-
 	// LabelDiscoveryPublic is a constant for a label key that indicates that the labeled resource is of interest to the Gardener Discovery Server.
 	LabelDiscoveryPublic = "discovery.gardener.cloud/public"
 	// DiscoveryShootCA is a constant for a label value that indicates that the labeled resource contains shoot cluster certificate authority.
 	DiscoveryShootCA = "shoot-ca"
+	// LabelPublicKeysServiceAccount is a constant for a label value that indicates that a resource contains service account public keys.
+	LabelPublicKeysServiceAccount = "serviceaccount"
 
 	// LabelExposureClassHandlerName is the label key for exposure class handler names.
 	LabelExposureClassHandlerName = "handler.exposureclass.gardener.cloud/name"
@@ -743,6 +743,18 @@ const (
 	// AnnotationSchedulingCloudProfiles is a constant for an annotation key on a configmap which denotes
 	// the linked cloudprofiles containing the region distances.
 	AnnotationSchedulingCloudProfiles = "scheduling.gardener.cloud/cloudprofiles"
+
+	// AnnotationMigrationLiveMigrate is a constant for an annotation key on a Shoot resource whose value must be set to
+	// "true" to declare intent for live control plane migration. It is combined with a spec.seedName change via the
+	// shoots/binding subresource to trigger a live control plane migration.
+	AnnotationMigrationLiveMigrate = "migration.gardener.cloud/live-migrate"
+	// AnnotationMigrationInterRegionDistanceThreshold is a constant for an annotation key on a scheduler region ConfigMap
+	// which defines the maximum allowed inter-region distance for live control plane migration.
+	AnnotationMigrationInterRegionDistanceThreshold = "migration.gardener.cloud/inter-region-distance-threshold"
+	// AnnotationMigrationAllowDistantRegions is a constant for an annotation key on a Shoot resource whose value must
+	// be set to "true" to allow live control plane migration between seeds in distant regions despite exceeding the
+	// configured distance threshold.
+	AnnotationMigrationAllowDistantRegions = "migration.gardener.cloud/allow-distant-regions"
 
 	// AnnotationConfirmationForceDeletion is a constant for an annotation on a Shoot resource whose value must be set to "true" in order to
 	// trigger force-deletion of the cluster. It can only be set if the Shoot has a deletion timestamp and contains an ErrorCode in the Shoot Status.
@@ -833,6 +845,9 @@ const (
 	LabelWorkerPoolSystemComponents = "worker.gardener.cloud/system-components"
 	// LabelWorkerPoolGardenerNodeAgentSecretName is the name of the secret used by the gardener node agent
 	LabelWorkerPoolGardenerNodeAgentSecretName = "worker.gardener.cloud/gardener-node-agent-secret-name"
+
+	// LabelNodeRoleControlPlane is a label key marking a node as a control-plane node.
+	LabelNodeRoleControlPlane = "node-role.kubernetes.io/control-plane"
 
 	// LabelUpdateRestriction is a constant for a label key that indicates
 	// that a resource must be only updated by the gardenlet.

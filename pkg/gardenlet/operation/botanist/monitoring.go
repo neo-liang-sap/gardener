@@ -44,7 +44,7 @@ func (b *Botanist) DefaultAlertmanager() (alertmanager.Interface, error) {
 		Name:               "shoot",
 		ClusterType:        component.ClusterTypeShoot,
 		PriorityClassName:  v1beta1constants.PriorityClassNameShootControlPlane100,
-		StorageCapacity:    resource.MustParse(b.Seed.GetValidVolumeSize("1Gi")),
+		StorageCapacity:    resource.MustParse(b.GetValidVolumeSize("1Gi")),
 		Replicas:           b.Shoot.GetReplicas(1),
 		AlertingSMTPSecret: b.LoadSecret(v1beta1constants.GardenRoleAlerting),
 		EmailReceivers:     emailReceivers,
@@ -64,12 +64,7 @@ func (b *Botanist) DeployAlertManager(ctx context.Context) error {
 		return b.Shoot.Components.ControlPlane.Alertmanager.Destroy(ctx)
 	}
 
-	ingressAuthSecret, found := b.SecretsManager.Get(v1beta1constants.SecretNameObservabilityIngressUsers)
-	if !found {
-		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameObservabilityIngressUsers)
-	}
-
-	b.Shoot.Components.ControlPlane.Alertmanager.SetIngressAuthSecret(ingressAuthSecret)
+	b.Shoot.Components.ControlPlane.Alertmanager.SetIngressAuthSecretName(v1beta1constants.SecretNameObservabilityIngressUsers)
 	b.Shoot.Components.ControlPlane.Alertmanager.SetIngressWildcardCertSecret(b.ControlPlaneWildcardCert)
 
 	return b.Shoot.Components.ControlPlane.Alertmanager.Deploy(ctx)
@@ -113,7 +108,7 @@ func (b *Botanist) DefaultPrometheus() (prometheus.Interface, error) {
 	values := prometheus.Values{
 		Name:                "shoot",
 		PriorityClassName:   v1beta1constants.PriorityClassNameShootControlPlane100,
-		StorageCapacity:     resource.MustParse(b.Seed.GetValidVolumeSize("20Gi")),
+		StorageCapacity:     resource.MustParse(b.GetValidVolumeSize("20Gi")),
 		ClusterType:         component.ClusterTypeShoot,
 		Replicas:            b.Shoot.GetReplicas(1),
 		Retention:           new(monitoringv1.Duration("30d")),
@@ -187,12 +182,7 @@ func (b *Botanist) DeployPrometheus(ctx context.Context) error {
 		return fmt.Errorf("failed reconciling access secret for prometheus: %w", err)
 	}
 
-	ingressAuthSecret, found := b.SecretsManager.Get(v1beta1constants.SecretNameObservabilityIngressUsers)
-	if !found {
-		return fmt.Errorf("secret %q not found", v1beta1constants.SecretNameObservabilityIngressUsers)
-	}
-
-	b.Shoot.Components.ControlPlane.Prometheus.SetIngressAuthSecret(ingressAuthSecret)
+	b.Shoot.Components.ControlPlane.Prometheus.SetIngressAuthSecretName(v1beta1constants.SecretNameObservabilityIngressUsers)
 	b.Shoot.Components.ControlPlane.Prometheus.SetIngressWildcardCertSecret(b.ControlPlaneWildcardCert)
 	b.Shoot.Components.ControlPlane.Prometheus.SetNamespaceUID(b.SeedNamespaceObject.UID)
 

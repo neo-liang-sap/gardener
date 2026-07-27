@@ -51,9 +51,9 @@ import (
 )
 
 var (
-	//go:embed third_party/crd-autoscaling.k8s.io_verticalpodautoscalers.yaml
+	//go:embed templates/crd-autoscaling.k8s.io_verticalpodautoscalers.yaml
 	verticalPodAutoscalerCRD []byte
-	//go:embed third_party/crd-autoscaling.k8s.io_verticalpodautoscalercheckpoints.yaml
+	//go:embed templates/crd-autoscaling.k8s.io_verticalpodautoscalercheckpoints.yaml
 	verticalPodAutoscalerCheckpointCRD []byte
 )
 
@@ -103,7 +103,7 @@ var _ = Describe("VPA", func() {
 		valuesRecommender         ValuesRecommender
 		valuesUpdater             ValuesUpdater
 
-		vpaUpdateMode       = vpaautoscalingv1.UpdateModeRecreate
+		vpaUpdateMode       = vpaautoscalingv1.UpdateModeInPlaceOrRecreate
 		vpaControlledValues = vpaautoscalingv1.ContainerControlledValuesRequestsOnly
 		maxUnavailable      = intstr.FromInt32(1)
 

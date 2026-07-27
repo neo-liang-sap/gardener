@@ -53,7 +53,7 @@ This document provides a checklist for them that you can walk through.
    For self-hosted shoots components deployed by `gardenadm init` and `gardenlet` which are required to run the self-hosted shoot are system components as well.
 
    Shoot system components deployed via `gardener-resource-manager` are labelled with `resource.gardener.cloud/managed-by: gardener`. This makes Gardener adding required label selectors and tolerations so that non-`DaemonSet` managed `Pod`s will exclusively run on selected nodes (for more information, see [System Components Webhook](../concepts/resource-manager.md#system-components-webhook)).
-   `DaemonSet`s on the other hand, should generally tolerate any `NoSchedule` or `NoExecute` taints so that they can run on any `Node`, regardless of user added taints. 
+   `DaemonSet`s on the other hand, should generally tolerate any `NoSchedule` or `NoExecute` taints so that they can run on any `Node`, regardless of user added taints.
    In the self-hosted shoot case the webhook is also enabled in namespaces labeled with `system-components-config.resources.gardener.cloud/consider=true`.
 
 ## Images
@@ -90,7 +90,7 @@ This document provides a checklist for them that you can walk through.
 
 2. **Use shoot access tokens instead of a client certificates** ([example](https://github.com/gardener/gardener/blob/b0de7db96ad436fe32c25daae5e8cb552dac351f/pkg/component/kubescheduler/kube_scheduler.go#L234-L236))
 
-   For components that need to talk to a target cluster different from their runtime cluster (e.g., running in seed cluster but talking to shoot) the `gardener-resource-manager`'s [TokenRequestor](../concepts/resource-manager.md#tokenrequestor) should be used to manage a so-called "shoot access token".
+   For components that need to talk to a target cluster different from their runtime cluster (e.g., running in seed cluster but talking to shoot) the `gardener-resource-manager`'s [TokenRequestor](../concepts/resource-manager.md#tokenrequestor-controller) should be used to manage a so-called "shoot access token".
 
 3. **Define RBAC roles with minimal privileges** ([example](https://github.com/gardener/gardener/blob/b0de7db96ad436fe32c25daae5e8cb552dac351f/pkg/component/metricsserver/metrics_server.go#L153-L223))
 
@@ -121,7 +121,7 @@ This document provides a checklist for them that you can walk through.
 
    Avoid running containers as root. Usually, components such as Kubernetes controllers and admission webhook servers don't need root user capabilities to do their jobs.
 
-   The problem with running as root, starts with how the container is first built. Unless a non-privileged user is configured in the `Dockerfile`, container build systems by default set up the container with the root user. Add a non-privileged user to your `Dockerfile` or use a base image with a non-root user (for example the `nonroot` images from [distroless](https://github.com/GoogleContainerTools/distroless) such as `gcr.io/distroless/static-debian12:nonroot`).
+   The problem with running as root, starts with how the container is first built. Unless a non-privileged user is configured in the `Dockerfile`, container build systems by default set up the container with the root user. Add a non-privileged user to your `Dockerfile` or use a base image with a non-root user (for example the `nonroot` images from [distroless](https://github.com/GoogleContainerTools/distroless) such as `gcr.io/distroless/static-debian13:nonroot`).
 
    If the image is an upstream one, then consider configuring a securityContext for the container/Pod with a non-privileged user. Explicitly set `securityContext.runAsNonRoot=true` as well as `securityContext.runAsUser=<UID>` and `securityContext.runAsGroup=<GID>` if possible. For more information, see [Configure a Security Context for a Pod or Container](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/).
 
@@ -179,7 +179,7 @@ This document provides a checklist for them that you can walk through.
 
 2. **Define a `VerticalPodAutoscaler`** ([example](https://github.com/gardener/gardener/blob/b0de7db96ad436fe32c25daae5e8cb552dac351f/pkg/component/metricsserver/metrics_server.go#L416-L444))
 
-   We typically (need to) perform vertical auto-scaling for containers that have a significant usage (>50m/100M) and a significant usage spread over time (>2x) by defining a [`VerticalPodAutoscaler`](https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/README.md#intro) with `updatePolicy.updateMode` [`Recreate`](https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/README.md#quick-start), `containerPolicies[].controlledValues` [`RequestsOnly`](https://github.com/kubernetes/autoscaler/blob/6da986f4ccefd2c2632e184f22cce30390dfb7d6/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1/types.go#L244-L245), reasonable `minAllowed` configuration and no `maxAllowed` configuration (will be taken care of in Gardener environments for you/capped at the largest eligible machine type). When creating the `VerticalPodAutoscaler`, make sure to explicitly enable it for the Container(s) that should be auto-scaled and disabling it for all other Containers in the Pod. This avoids unexpected resource changes for Containers that should not be auto-scaled.
+   We typically (need to) perform vertical auto-scaling for containers that have a significant usage (>50m/100M) and a significant usage spread over time (>2x) by defining a [`VerticalPodAutoscaler`](https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/README.md#intro) with `updatePolicy.updateMode` [`InPlaceOrRecreate`](https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/README.md#quick-start), `containerPolicies[].controlledValues` [`RequestsOnly`](https://github.com/kubernetes/autoscaler/blob/6da986f4ccefd2c2632e184f22cce30390dfb7d6/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1/types.go#L244-L245), reasonable `minAllowed` configuration and no `maxAllowed` configuration (will be taken care of in Gardener environments for you/capped at the largest eligible machine type). When creating the `VerticalPodAutoscaler`, make sure to explicitly enable it for the Container(s) that should be auto-scaled and disabling it for all other Containers in the Pod. This avoids unexpected resource changes for Containers that should not be auto-scaled.
    This is done by adding explicit by-name `containerPolicies` for all Containers in the Pod spec which _should_ be autoscaled and adding a catch-all `containerPolicy` to _disable_ vertical autoscaling for all Containers which don't have their own policy.
 
 3. **Define a `HorizontalPodAutoscaler` if needed** ([example](https://github.com/gardener/gardener/blob/b0de7db96ad436fe32c25daae5e8cb552dac351f/pkg/component/coredns/coredns.go#L671-L726))
@@ -212,9 +212,26 @@ This document provides a checklist for them that you can walk through.
 
    [`gardener-operators`'s](../concepts/operator.md#controllers) and [`gardenlet`'s](../concepts/gardenlet.md#controllers) care controllers regularly check the health status of components relevant to the respective cluster (garden/seed/shoot).
    For shoot control plane components, you need to enhance the lists of components to make sure your component is checked, see example above.
-   For components deployed via `ManagedResource`, please consult the respective care controller documentation for more information ([garden](../concepts/operator.md#care-reconciler), [seed](../concepts/gardenlet.md#-care--reconciler-1), [shoot](../concepts/gardenlet.md#-care--reconciler-2)).
+   For components deployed via `ManagedResource`, please consult the respective care controller documentation for more information ([garden](../concepts/operator.md#care-reconciler), [seed](../concepts/gardenlet.md#care-reconciler-1), [shoot](../concepts/gardenlet.md#care-reconciler-2)).
 
 5. **Configure automatic restarts in shoot maintenance time window** ([example 1](https://github.com/gardener/gardener/blob/b0de7db96ad436fe32c25daae5e8cb552dac351f/pkg/component/kubescheduler/kube_scheduler.go#L250), [example 2](https://github.com/gardener/gardener/blob/6a0fea86850ffec8937d1956bdf1a8ca6d074f3b/pkg/operation/botanist/coredns.go#L90-L107))
 
    Gardener offers to restart components during the maintenance time window. For more information, see [Restart Control Plane Controllers](../usage/shoot/shoot_maintenance.md#restart-control-plane-controllers) and [Restart Some Core Addons](../usage/shoot/shoot_maintenance.md#restart-some-core-addons).
    You can consider adding the needed label to your control plane component to get this automatic restart (probably not needed for most components).
+
+## Renovate Configuration
+
+When a new component is introduced, you might have to adapt [`.github/renovate.json5`](../../.github/renovate.json5) to handle its dependencies correctly.
+
+1. **Group related updates in one PR** ([example 1](https://github.com/gardener/gardener/blob/master/.github/renovate.json5#L199-L210), [example 2](https://github.com/gardener/gardener/blob/master/.github/renovate.json5#L246-L255))
+
+   If the component ships Go API types and its CRDs are generated dynamically via a `//go:generate` directive in a `doc.go` file ([pvc-autoscaler example](https://github.com/gardener/gardener/blob/master/pkg/component/autoscaling/pvcautoscaler/assets/doc.go), [opentelemetry-operator example](https://github.com/gardener/gardener/blob/master/pkg/component/observability/opentelemetry/operator/assets/doc.go)), the image bump and the `go.mod` bump must land together — a stale module would regenerate outdated CRDs.
+   Add a grouping rule under a common `groupName` covering both the image (with a `docker` or `github-releases` datasource) and the Go module (with a `go` datasource).
+
+   The Renovate package name for the image is derived from `imagevector/containers.yaml` per the [imagevector renovate config](https://github.com/gardener/ci-infra/blob/master/config/renovate/imagevector.json5) and depends on whether the image config has `sourceRepository` defined or not:
+   - **With `sourceRepository: github.com/<owner>/<repo>`**: datasource `github-releases`, package name `<owner>/<repo>` (e.g. `gardener/pvc-autoscaler`).
+   - **Without `sourceRepository`**: datasource `docker`, package name is the `repository:` field verbatim.
+
+2. **Trigger `make generate` when the Go API package is updated** ([example](https://github.com/gardener/gardener/blob/master/.github/renovate.json5#L138-L158))
+
+   Add the module path to the existing `postUpgradeTasks` rule that runs `make generate` so that new CRD fields are reflected in the generated manifests. The rule already covers paths matching `/.+/api(/.+|$)/` and `/.+/apis(/.+|$)/` generically — only add an explicit entry when the path does not match (e.g. `github.com/gardener/pvc-autoscaler`).

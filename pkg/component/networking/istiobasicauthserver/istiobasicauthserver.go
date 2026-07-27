@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -179,7 +180,7 @@ func (i *istioBasicAuthServer) calculateConfiguration(
 	error,
 ) {
 	virtualServiceList := &istionetworkingv1beta1.VirtualServiceList{}
-	if err := i.client.List(ctx, virtualServiceList, client.InNamespace(i.namespace), client.HasLabels{v1beta1constants.LabelBasicAuthSecretName}); err != nil {
+	if err := i.client.List(ctx, virtualServiceList, client.InNamespace(i.namespace), client.MatchingLabels{v1beta1constants.LabelBasicAuthServerName: i.getPrefix() + name}); err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to list virtual services: %w", err)
 	}
 
@@ -201,6 +202,11 @@ func (i *istioBasicAuthServer) calculateConfiguration(
 	)
 
 	for _, virtualService := range virtualServiceList.Items {
+		secretName := virtualService.Labels[v1beta1constants.LabelBasicAuthSecretName]
+		if secret, found := i.secretsManager.Get(secretName); found {
+			secretName = secret.Name
+		}
+
 		for _, host := range virtualService.Spec.Hosts {
 			// Use the first subdomain as the filename for the basic authentication data. Domains without '.' are ignored.
 			// The full domain is used to identify the filter chain via SNI in the EnvoyFilter configuration patch.
@@ -213,7 +219,7 @@ func (i *istioBasicAuthServer) calculateConfiguration(
 				Name: subdomain,
 				VolumeSource: corev1.VolumeSource{
 					Secret: &corev1.SecretVolumeSource{
-						SecretName: virtualService.Labels[v1beta1constants.LabelBasicAuthSecretName],
+						SecretName: secretName,
 						Items: []corev1.KeyToPath{
 							{
 								Key:  secretsutils.DataKeyAuth,
@@ -291,6 +297,14 @@ func (i *istioBasicAuthServer) calculateConfiguration(
 		})
 	}
 
+	// Sort volumes and volume mounts to prevent unnecessary updates to the deployment.
+	slices.SortFunc(volumes, func(a, b corev1.Volume) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(volumeMounts, func(a, b corev1.VolumeMount) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return volumes, volumeMounts, configPatches, nil
 }
 
@@ -300,6 +314,19 @@ func (i *istioBasicAuthServer) getPrefix() string {
 	}
 
 	return ""
+}
+
+// BasicAuthLabels returns the labels that associate a VirtualService with its configuring istio-basic-auth-server.
+func BasicAuthLabels(isGardenCluster bool, secretName string) map[string]string {
+	basicAuthServerName := v1beta1constants.DeploymentNameIstioBasicAuthServer
+	if isGardenCluster {
+		basicAuthServerName = operatorv1alpha1.VirtualGardenNamePrefix + basicAuthServerName
+	}
+
+	return map[string]string{
+		v1beta1constants.LabelBasicAuthSecretName: secretName,
+		v1beta1constants.LabelBasicAuthServerName: basicAuthServerName,
+	}
 }
 
 func (i *istioBasicAuthServer) getLabels() map[string]string {

@@ -516,7 +516,11 @@ func (in *ClusterList) DeepCopyObject() runtime.Object {
 func (in *ClusterSpec) DeepCopyInto(out *ClusterSpec) {
 	*out = *in
 	in.CloudProfile.DeepCopyInto(&out.CloudProfile)
-	in.Seed.DeepCopyInto(&out.Seed)
+	if in.Seed != nil {
+		in, out := &in.Seed, &out.Seed
+		*out = new(runtime.RawExtension)
+		(*in).DeepCopyInto(*out)
+	}
 	in.Shoot.DeepCopyInto(&out.Shoot)
 	return
 }
@@ -1482,6 +1486,11 @@ func (in *MachineDeployment) DeepCopyInto(out *MachineDeployment) {
 	*out = *in
 	if in.Priority != nil {
 		in, out := &in.Priority, &out.Priority
+		*out = new(int32)
+		**out = **in
+	}
+	if in.AutoPreserveFailedMachineMax != nil {
+		in, out := &in.AutoPreserveFailedMachineMax, &out.AutoPreserveFailedMachineMax
 		*out = new(int32)
 		**out = **in
 	}

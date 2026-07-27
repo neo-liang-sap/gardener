@@ -34,7 +34,7 @@ func (b *GardenadmBotanist) ConnectToControlPlaneMachine(ctx context.Context) er
 		return err
 	}
 
-	machineAddr, err := PreferredAddress(machine.Status.Addresses)
+	machineAddr, err := PreferredNodeAddress(machine.Status.Addresses)
 	if err != nil {
 		return fmt.Errorf("failed getting preferred address for machine %q: %w", machine.Name, err)
 	}
@@ -46,7 +46,7 @@ func (b *GardenadmBotanist) ConnectToControlPlaneMachine(ctx context.Context) er
 	}
 
 	conn, err := sshutils.Dial(ctx, sshAddr,
-		sshutils.WithProxyConnection(b.Components.Bastion.Connection),
+		sshutils.WithProxyConnection(b.Shoot.Components.Bastion.Connection),
 		sshutils.WithUser("gardener"),
 		sshutils.WithPrivateKeyBytes(sshKeypairSecret.Data[secretsutils.DataKeyRSAPrivateKey]),
 	)

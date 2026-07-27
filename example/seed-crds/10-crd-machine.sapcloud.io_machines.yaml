@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.20.1
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: machines.machine.sapcloud.io
 spec:
   group: machine.sapcloud.io
@@ -94,6 +94,10 @@ spec:
               inPlaceUpdateTimeout:
                 description: MachineInPlaceUpdateTimeout is the timeout after which
                   in-place update is declared failed.
+                type: string
+              machinePreserveTimeout:
+                description: MachinePreserveTimeout is the timeout after which the
+                  machine preservation is stopped
                 type: string
               maxEvictRetries:
                 description: MaxEvictRetries is the number of retries that will be
@@ -194,9 +198,8 @@ spec:
                                 a node.
                               type: string
                             timeAdded:
-                              description: |-
-                                TimeAdded represents the time at which the taint was added.
-                                It is only written for NoExecute taints.
+                              description: TimeAdded represents the time at which
+                                the taint was added.
                               format: date-time
                               type: string
                             value:
@@ -286,6 +289,11 @@ spec:
                   phase:
                     description: MachinePhase is a label for the condition of a machine
                       at the current time.
+                    type: string
+                  preserveExpiryTime:
+                    description: PreserveExpiryTime is the time at which MCM will
+                      stop preserving the machine
+                    format: date-time
                     type: string
                   timeoutActive:
                     type: boolean

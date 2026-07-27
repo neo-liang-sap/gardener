@@ -7,12 +7,12 @@ package connect
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/events"
@@ -29,10 +29,12 @@ import (
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
+	bootstrapetcd "github.com/gardener/gardener/pkg/component/etcd/bootstrap"
 	corebackupbucket "github.com/gardener/gardener/pkg/component/garden/backupbucket"
 	"github.com/gardener/gardener/pkg/controller/gardenletdeployer"
 	"github.com/gardener/gardener/pkg/gardenadm/botanist"
 	"github.com/gardener/gardener/pkg/gardenadm/cmd"
+	"github.com/gardener/gardener/pkg/gardenadm/staticpod"
 	"github.com/gardener/gardener/pkg/utils/flow"
 	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/oci"
@@ -85,9 +87,22 @@ func run(ctx context.Context, opts *Options) error {
 		return fmt.Errorf("failed creating client set for self-hosted shoot: %w", err)
 	}
 
-	if alreadyConnected, err := isGardenletDeployed(ctx, b); err != nil {
+	if bootstrapEtcdExists, err := isBootstrapEtcdStillRunning(ctx, b); err != nil {
+		return fmt.Errorf("failed checking if bootstrap etcd is still running: %w", err)
+	} else if bootstrapEtcdExists {
+		if !opts.Force {
+			return fmt.Errorf("bootstrap etcd is still running in the self-hosted shoot cluster, please run 'gardenadm init --use-bootstrap-etcd=false' first")
+		}
+		opts.Log.Info("Warning: Bootstrap etcd is still running, --force override active")
+	}
+
+	if alreadyConnected, err := cmd.IsGardenletDeployed(ctx, b.SeedClientSet.Client(), b.Shoot.ControlPlaneNamespace); err != nil {
 		return fmt.Errorf("failed checking if gardenlet is already deployed: %w", err)
 	} else if !alreadyConnected || opts.Force {
+		if alreadyConnected {
+			opts.Log.Info("Warning: Gardenlet is already deployed, --force override active")
+		}
+
 		bootstrapClientSet, err := cmd.NewClientSetFromBootstrapToken(opts.ControlPlaneAddress, opts.CertificateAuthority, opts.BootstrapToken, kubernetes.GardenScheme)
 		if err != nil {
 			return fmt.Errorf("failed creating a new bootstrap garden client set: %w", err)
@@ -127,7 +142,13 @@ func run(ctx context.Context, opts *Options) error {
 						b.Shoot.GetInfo(),
 						nil,
 						&seedmanagementv1alpha1.GardenletDeployment{},
-						&runtime.RawExtension{Object: &gardenletconfigv1alpha1.GardenletConfiguration{}},
+						&runtime.RawExtension{Object: &gardenletconfigv1alpha1.GardenletConfiguration{
+							Controllers: &gardenletconfigv1alpha1.GardenletControllerConfiguration{
+								Shoot: &gardenletconfigv1alpha1.ShootControllerConfiguration{
+									ReconcileInMaintenanceOnly: new(true),
+								},
+							},
+						}},
 						seedmanagementv1alpha1.BootstrapToken,
 						false,
 					)
@@ -180,22 +201,20 @@ Happy Gardening!
 	return nil
 }
 
-func isGardenletDeployed(ctx context.Context, b *botanist.GardenadmBotanist) (bool, error) {
-	if err := b.SeedClientSet.Client().Get(ctx, client.ObjectKey{Namespace: b.Shoot.ControlPlaneNamespace, Name: v1beta1constants.DeploymentNameGardenlet}, &appsv1.Deployment{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return false, fmt.Errorf("failed checking if gardenlet deployment already exists: %w", err)
-		}
-		return false, nil
+func isBootstrapEtcdStillRunning(ctx context.Context, b *botanist.GardenadmBotanist) (bool, error) {
+	podList := &metav1.PartialObjectMetadataList{}
+	podList.SetGroupVersionKind(corev1.SchemeGroupVersion.WithKind("PodList"))
+	if err := b.SeedClientSet.Client().List(ctx, podList, client.InNamespace(b.Shoot.ControlPlaneNamespace), client.MatchingLabels{staticpod.LabelKeyIsStaticPod: staticpod.LabelValueIsStaticPod}); err != nil {
+		return false, fmt.Errorf("failed checking if bootstrap etcd still exists: %w", err)
 	}
 
-	if err := b.SeedClientSet.Client().Get(ctx, client.ObjectKey{Namespace: b.Shoot.ControlPlaneNamespace, Name: gardenletdeployer.GardenletDefaultKubeconfigSecretName}, &corev1.Secret{}); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return false, fmt.Errorf("failed checking if gardenlet's kubeconfig secret already exists: %w", err)
+	for _, pod := range podList.Items {
+		if strings.HasPrefix(pod.GetName(), bootstrapetcd.NamePrefix) {
+			return true, nil
 		}
-		return false, nil
 	}
 
-	return true, nil
+	return false, nil
 }
 
 func prepareGardenerResources(ctx context.Context, b *botanist.GardenadmBotanist) error {

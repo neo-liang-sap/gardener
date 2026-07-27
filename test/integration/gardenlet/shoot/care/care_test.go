@@ -106,7 +106,7 @@ var _ = Describe("Shoot Care controller tests", func() {
 			},
 			Spec: extensionsv1alpha1.ClusterSpec{
 				Shoot:        runtime.RawExtension{Object: shoot},
-				Seed:         runtime.RawExtension{Object: seed},
+				Seed:         &runtime.RawExtension{Object: seed},
 				CloudProfile: runtime.RawExtension{Object: &gardencorev1beta1.CloudProfile{}},
 			},
 		}
@@ -623,6 +623,7 @@ var _ = Describe("Shoot Care controller tests (self-hosted shoot)", func() {
 					Type:     new("foo-networking"),
 					Services: new("10.0.0.0/16"),
 					Pods:     new("10.1.0.0/16"),
+					Nodes:    new("10.2.0.0/16"),
 				},
 			},
 		}
@@ -632,7 +633,7 @@ var _ = Describe("Shoot Care controller tests (self-hosted shoot)", func() {
 			},
 			Spec: extensionsv1alpha1.ClusterSpec{
 				Shoot:        runtime.RawExtension{Object: shoot},
-				Seed:         runtime.RawExtension{Object: &gardencorev1beta1.Seed{}},
+				Seed:         &runtime.RawExtension{Object: &gardencorev1beta1.Seed{}},
 				CloudProfile: runtime.RawExtension{Object: &gardencorev1beta1.CloudProfile{}},
 			},
 		}

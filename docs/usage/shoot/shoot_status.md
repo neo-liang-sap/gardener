@@ -29,7 +29,7 @@ Currently, the available Shoot condition types are:
 - `SystemComponentsHealthy`
 
 The Shoot conditions are maintained by the [shoot care reconciler](../../../pkg/gardenlet/controller/shoot/care/reconciler.go) of the gardenlet.
-Find more information in the [gardelent documentation](../../concepts/gardenlet.md#shoot-controller).
+Find more information in the [gardenlet documentation](../../concepts/gardenlet.md#shoot-controller).
 
 ### Sync Period
 
@@ -120,9 +120,21 @@ This constraint indicates that at least one worker pool with the update strategy
 The constraint is not added to `.status.constraints` if all such worker pools are already up-to-date.
 Once the user manually labels all the relevant nodes with `node.machine.sapcloud.io/selected-for-update` and the update process completes, the constraint will be automatically removed.
 
+**`HasIgnoredManagedResources`**:
+
+This constraint indicates that at least one `ManagedResource` in the Shoot's control plane namespace has been annotated with `resources.gardener.cloud/ignore=true`, meaning its reconciliation has been disabled.
+It will not be added to `.status.constraints` if no such `ManagedResource` exists.
+If it's visible, operators should be aware that the annotated resources may diverge from the desired state and should remove the annotation once the manual intervention is complete.
+
+**`PreservedFailedMachinesAbsent`**:
+
+This constraint indicates that one or more machines in `Failed` phase are currently being preserved (i.e., not terminated) to allow for debugging and analysis. The constraint is not added to `.status.constraints` when no failed machines are currently preserved.
+See [Machine Preservation](shoot_machine_preservation.md) for more details.
+
+
 ### Last Operation
 
-The Shoot status holds information about the last operation that is performed on the Shoot. The last operation field reflects overall progress and the tasks that are currently being executed. Allowed operation types are `Create`, `Reconcile`, `Delete`, `Migrate`, and `Restore`. Allowed operation states are `Processing`, `Succeeded`, `Error`, `Failed`, `Pending`, and `Aborted`. An operation in `Error` state is an operation that will be retried for a configurable amount of time (`controllers.shoot.retryDuration` field in `GardenletConfiguration`, defaults to `12h`). If the operation cannot complete successfully for the configured retry duration, it will be marked as `Failed`. An operation in `Failed` state is an operation that won't be retried automatically (to retry such an operation, see [Retry failed operation](../shoot-operations/shoot_operations.md#retry-failed-operation)).
+The Shoot status holds information about the last operation that is performed on the Shoot. The last operation field reflects overall progress and the tasks that are currently being executed. Allowed operation types are `Create`, `Reconcile`, `Delete`, `Migrate`, and `Restore`. Allowed operation states are `Processing`, `Succeeded`, `Error`, `Failed`, `Pending`, and `Aborted`. An operation in `Error` state is an operation that will be retried for a configurable amount of time (`controllers.shoot.retryDuration` field in `GardenletConfiguration`, defaults to `12h`). If the operation cannot complete successfully for the configured retry duration, it will be marked as `Failed`. An operation in `Failed` state is an operation that won't be retried automatically (to retry such an operation, see [Retry Failed Reconciliation](../shoot-operations/shoot_operations.md#retry-failed-reconciliation)).
 
 ### Last Errors
 

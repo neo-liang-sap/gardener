@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 
@@ -32,6 +33,8 @@ var (
 	NoControlPlaneSecretsReq = utils.MustNewRequirement(v1beta1constants.GardenRole, selection.NotIn, v1beta1constants.ControlPlaneSecretRoles...)
 	// NoPullOrCABundleSecretsReq is a label selector requirement to select secrets which are not pull secrets or OCI CA bundle secrets.
 	NoPullOrCABundleSecretsReq = utils.MustNewRequirement(v1beta1constants.GardenRole, selection.NotIn, v1beta1constants.GardenRoleHelmPullSecret, v1beta1constants.GardenRoleOCICABundle)
+	// NoResourceReferenceSecretsReq is a label selector requirement to select non-resource reference secrets.
+	NoResourceReferenceSecretsReq = utils.MustNewRequirement(v1beta1constants.GardenRole, selection.NotIn, v1beta1constants.GardenRoleResourceReference)
 	// UncontrolledSecretSelector is a selector for objects which are managed by operators/users and not created by
 	// Gardener controllers.
 	UncontrolledSecretSelector = client.MatchingLabelsSelector{Selector: labels.NewSelector().Add(NoControlPlaneSecretsReq)}
@@ -56,11 +59,13 @@ func FetchKubeconfigFromSecret(ctx context.Context, c client.Client, key client.
 // secrets.
 const LabelPurposeGlobalMonitoringSecret = "global-monitoring-secret-replica"
 
-// ReplicateGlobalMonitoringSecret replicates the global monitoring secret into the given namespace and prefixes it with
-// the given prefix.
-func ReplicateGlobalMonitoringSecret(ctx context.Context, c client.Client, prefix, namespace string, globalMonitoringSecret *corev1.Secret) (*corev1.Secret, error) {
-	globalMonitoringSecretReplica := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: prefix + globalMonitoringSecret.Name, Namespace: namespace}}
+// ReplicateGlobalMonitoringSecret replicates the global monitoring secret into the given namespace with a
+// transformed name. The replicaName function receives the source secret name and returns the desired replica name.
+// Staled replicas are deleted.
+func ReplicateGlobalMonitoringSecret(ctx context.Context, c client.Client, globalMonitoringSecret *corev1.Secret, replicaNamespace string, replicaName func(string) string) (*corev1.Secret, error) {
+	globalMonitoringSecretReplica := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: replicaName(globalMonitoringSecret.Name), Namespace: replicaNamespace}}
 	_, err := controllerutils.GetAndCreateOrMergePatch(ctx, c, globalMonitoringSecretReplica, func() error {
+		metav1.SetMetaDataLabel(&globalMonitoringSecretReplica.ObjectMeta, v1beta1constants.GardenRole, v1beta1constants.GardenRoleGlobalMonitoring)
 		metav1.SetMetaDataLabel(&globalMonitoringSecretReplica.ObjectMeta, v1beta1constants.GardenerPurpose, LabelPurposeGlobalMonitoringSecret)
 
 		globalMonitoringSecretReplica.Type = globalMonitoringSecret.Type
@@ -77,7 +82,35 @@ func ReplicateGlobalMonitoringSecret(ctx context.Context, c client.Client, prefi
 
 		return nil
 	})
-	return globalMonitoringSecretReplica, err
+	if err != nil {
+		return nil, err
+	}
+
+	if err := deleteStaleGlobalMonitoringSecretReplicas(ctx, c, globalMonitoringSecretReplica); err != nil {
+		return nil, err
+	}
+
+	return globalMonitoringSecretReplica, nil
+}
+
+func deleteStaleGlobalMonitoringSecretReplicas(ctx context.Context, c client.Client, currentReplica *corev1.Secret) error {
+	secretList := &metav1.PartialObjectMetadataList{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "SecretList"}}
+	if err := c.List(ctx, secretList,
+		client.InNamespace(currentReplica.Namespace),
+		client.MatchingLabels{v1beta1constants.GardenerPurpose: LabelPurposeGlobalMonitoringSecret},
+	); err != nil {
+		return fmt.Errorf("failed to list global observability secret replicas: %w", err)
+	}
+
+	for _, secret := range secretList.Items {
+		if secret.Name != currentReplica.Name {
+			if err := c.Delete(ctx, &secret); client.IgnoreNotFound(err) != nil {
+				return fmt.Errorf("failed to delete stale global observability secret replica %q: %w", secret.Name, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 var injectionScheme = kubernetes.SeedScheme

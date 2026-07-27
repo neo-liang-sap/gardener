@@ -17,6 +17,7 @@ import (
 	"github.com/gardener/gardener/imagevector"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
+	"github.com/gardener/gardener/pkg/component"
 	"github.com/gardener/gardener/pkg/component/autoscaling/clusterautoscaler"
 	"github.com/gardener/gardener/pkg/utils"
 	imagevectorutils "github.com/gardener/gardener/pkg/utils/imagevector"
@@ -25,6 +26,10 @@ import (
 
 // DefaultClusterAutoscaler returns a deployer for the cluster-autoscaler.
 func (b *Botanist) DefaultClusterAutoscaler() (clusterautoscaler.Interface, error) {
+	if b.Shoot.IsWorkerless {
+		return nil, nil
+	}
+
 	image, err := imagevector.Containers().FindImage(imagevector.ContainerImageNameClusterAutoscaler, imagevectorutils.RuntimeVersion(b.SeedVersion()), imagevectorutils.TargetVersion(b.ShootVersion()))
 	if err != nil {
 		return nil, err
@@ -38,14 +43,22 @@ func (b *Botanist) DefaultClusterAutoscaler() (clusterautoscaler.Interface, erro
 		b.Shoot.GetReplicas(1),
 		b.Shoot.GetInfo().Spec.Kubernetes.ClusterAutoscaler,
 		b.Shoot.GetInfo().Spec.Provider.Workers,
-		b.Seed.KubernetesVersion,
+		b.Shoot.RuntimeKubernetesVersion,
 		b.Shoot.KubernetesVersion,
 	), nil
 }
 
 // DeployClusterAutoscaler deploys the Kubernetes cluster-autoscaler.
 func (b *Botanist) DeployClusterAutoscaler(ctx context.Context) error {
+	bootstrapper := clusterautoscaler.NewBootstrapper(b.SeedClientSet.Client(), b.Shoot.ControlPlaneNamespace)
+
 	if b.Shoot.WantsClusterAutoscaler {
+		if b.Shoot.IsSelfHosted() {
+			if err := component.OpWait(bootstrapper).Deploy(ctx); err != nil {
+				return fmt.Errorf("failed deploying cluster-autoscaler bootstrapper: %w", err)
+			}
+		}
+
 		replicas, err := b.determineControllerReplicas(ctx, v1beta1constants.DeploymentNameClusterAutoscaler, 1)
 		if err != nil {
 			return err
@@ -63,7 +76,17 @@ func (b *Botanist) DeployClusterAutoscaler(ctx context.Context) error {
 		return b.Shoot.Components.ControlPlane.ClusterAutoscaler.Deploy(ctx)
 	}
 
-	return b.Shoot.Components.ControlPlane.ClusterAutoscaler.Destroy(ctx)
+	if err := b.Shoot.Components.ControlPlane.ClusterAutoscaler.Destroy(ctx); err != nil {
+		return err
+	}
+
+	if b.Shoot.IsSelfHosted() {
+		if err := component.OpWait(bootstrapper).Destroy(ctx); err != nil {
+			return fmt.Errorf("failed destroying cluster-autoscaler bootstrapper: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // ScaleClusterAutoscalerToZero scales cluster-autoscaler replicas to zero.

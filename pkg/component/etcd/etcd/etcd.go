@@ -164,6 +164,7 @@ type Values struct {
 	HighAvailabilityEnabled     bool
 	TopologyAwareRoutingEnabled bool
 	StaticPodConfig             *StaticPodConfig
+	MemberNamePrefix            string
 }
 
 // BackupConfig contains information for configuring the backup-restore sidecar so that it takes regularly backups of
@@ -265,7 +266,7 @@ func (e *etcd) Deploy(ctx context.Context) error {
 	// add peer certs if shoot has HA control plane
 	// TODO(timuthy): Once https://github.com/gardener/etcd-backup-restore/issues/538 is resolved we can enable
 	//  PeerUrlTLS for all remaining clusters as well.
-	var peerUrlTLS *druidcorev1alpha1.TLSConfig
+	var peerUrlTLS *druidcorev1alpha1.PeerTLSConfig
 	if e.values.HighAvailabilityEnabled {
 		etcdPeerCASecret, found := e.secretsManager.Get(v1beta1constants.SecretNameCAETCDPeer)
 		if !found {
@@ -277,17 +278,19 @@ func (e *etcd) Deploy(ctx context.Context) error {
 			return fmt.Errorf("failed to generate a peer certificate: %w", err)
 		}
 
-		peerUrlTLS = &druidcorev1alpha1.TLSConfig{
-			TLSCASecretRef: druidcorev1alpha1.SecretReference{
-				SecretReference: corev1.SecretReference{
-					Name:      etcdPeerCASecret.Name,
+		peerUrlTLS = &druidcorev1alpha1.PeerTLSConfig{
+			TLSConfig: druidcorev1alpha1.TLSConfig{
+				TLSCASecretRef: druidcorev1alpha1.SecretReference{
+					SecretReference: corev1.SecretReference{
+						Name:      etcdPeerCASecret.Name,
+						Namespace: e.namespace,
+					},
+					DataKey: new(secretsutils.DataKeyCertificateBundle),
+				},
+				ServerTLSSecretRef: corev1.SecretReference{
+					Name:      peerServerSecret.Name,
 					Namespace: e.namespace,
 				},
-				DataKey: new(secretsutils.DataKeyCertificateBundle),
-			},
-			ServerTLSSecretRef: corev1.SecretReference{
-				Name:      peerServerSecret.Name,
-				Namespace: e.namespace,
 			},
 		}
 	}
@@ -439,6 +442,10 @@ func (e *etcd) Deploy(ctx context.Context) error {
 		}
 		e.etcd.Spec.StorageClass = e.values.StorageClassName
 		e.etcd.Spec.VolumeClaimTemplate = &volumeClaimTemplate
+
+		if existingEtcd == nil && e.values.MemberNamePrefix != "" {
+			e.etcd.Spec.MemberNamePrefix = new(e.values.MemberNamePrefix)
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -830,7 +837,7 @@ func (e *etcd) reconcileVerticalPodAutoscaler(ctx context.Context, vpa *vpaautos
 				Name:       e.etcd.Name,
 			},
 			UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-				UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+				UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 			},
 			ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 				ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -936,7 +943,7 @@ func (e *etcd) RolloutPeerCA(ctx context.Context) error {
 		}
 
 		if e.etcd.Spec.Etcd.PeerUrlTLS == nil {
-			e.etcd.Spec.Etcd.PeerUrlTLS = &druidcorev1alpha1.TLSConfig{}
+			e.etcd.Spec.Etcd.PeerUrlTLS = &druidcorev1alpha1.PeerTLSConfig{}
 		}
 
 		e.etcd.Spec.Etcd.PeerUrlTLS.TLSCASecretRef = druidcorev1alpha1.SecretReference{
@@ -1041,7 +1048,8 @@ func (e *etcd) computeReplicas(existingEtcd *druidcorev1alpha1.Etcd) int32 {
 
 func (e *etcd) computeDefragmentationSchedule(existingEtcd *druidcorev1alpha1.Etcd) *string {
 	defragmentationSchedule := e.values.DefragmentationSchedule
-	if existingEtcd != nil && existingEtcd.Spec.Etcd.DefragmentationSchedule != nil {
+	if existingEtcd != nil && existingEtcd.Spec.Etcd.DefragmentationSchedule != nil &&
+		!isEveryNDaysSchedule(*existingEtcd.Spec.Etcd.DefragmentationSchedule) {
 		defragmentationSchedule = existingEtcd.Spec.Etcd.DefragmentationSchedule
 	}
 	return defragmentationSchedule
@@ -1065,4 +1073,16 @@ func (e *etcd) defaultPortOrEtcdEventsStaticPodPort(defaultPort, etcdEventsPortW
 // Name returns the name of the etcd based on its role.
 func Name(role string) string {
 	return "etcd-" + role
+}
+
+// isEveryNDaysSchedule reports whether the cron expression schedules on every Nth day-of-month
+// where N > 1 (i.e. the day-of-month field matches "*/N" with N > 1). Such schedules were used
+// as the old defragmentation schedule and should be updated to the new daily schedule on existing Etcd resources.
+func isEveryNDaysSchedule(schedule string) bool {
+	fields := strings.Fields(schedule)
+	if len(fields) != 5 || !strings.HasPrefix(fields[2], "*/") {
+		return false
+	}
+	n, err := strconv.Atoi(strings.TrimPrefix(fields[2], "*/"))
+	return err == nil && n > 1
 }

@@ -82,7 +82,6 @@ var _ = Describe("Secrets", func() {
 			ctx        = context.Background()
 			fakeClient client.Client
 
-			prefix                 = "prefix"
 			namespace              = "namespace"
 			globalMonitoringSecret = &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -103,6 +102,7 @@ var _ = Describe("Secrets", func() {
 
 		It("should replicate the secret", func() {
 			assertions := func(secret *corev1.Secret) {
+				Expect(secret.Labels).To(HaveKeyWithValue("gardener.cloud/role", "global-monitoring"))
 				Expect(secret.Labels).To(HaveKeyWithValue("gardener.cloud/purpose", "global-monitoring-secret-replica"))
 				Expect(secret.Type).To(Equal(globalMonitoringSecret.Type))
 				Expect(secret.Immutable).To(Equal(globalMonitoringSecret.Immutable))
@@ -113,12 +113,60 @@ var _ = Describe("Secrets", func() {
 				Expect(bcrypt.CompareHashAndPassword([]byte(hashedPassword), secret.Data["password"])).To(Succeed())
 			}
 
-			secret, err := ReplicateGlobalMonitoringSecret(ctx, fakeClient, prefix, namespace, globalMonitoringSecret)
+			secret, err := ReplicateGlobalMonitoringSecret(ctx, fakeClient, globalMonitoringSecret, namespace, func(name string) string {
+				return "prefix-" + name
+			})
 			Expect(err).NotTo(HaveOccurred())
 			assertions(secret)
 
 			Expect(fakeClient.Get(ctx, client.ObjectKeyFromObject(secret), secret)).To(Succeed())
 			assertions(secret)
+		})
+
+		It("should delete stale replicas after replicating a new secret", func() {
+			stale := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      globalMonitoringSecret.Name + "-stale",
+					Namespace: namespace,
+					Labels:    map[string]string{"gardener.cloud/purpose": "global-monitoring-secret-replica"},
+				},
+				Data: map[string][]byte{"username": []byte("old"), "password": []byte("old")},
+			}
+			Expect(fakeClient.Create(ctx, stale)).To(Succeed())
+
+			secret, err := ReplicateGlobalMonitoringSecret(ctx, fakeClient, globalMonitoringSecret, namespace, func(name string) string {
+				return "prefix-" + name
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(secret.Name).To(Equal("prefix-" + globalMonitoringSecret.Name))
+
+			secretList := &corev1.SecretList{}
+			Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{"gardener.cloud/purpose": "global-monitoring-secret-replica"})).To(Succeed())
+			Expect(secretList.Items).To(HaveLen(1))
+			Expect(secretList.Items[0].Name).To(Equal(secret.Name))
+		})
+
+		It("should not delete current replica after replicating it", func() {
+			stale := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "prefix-" + globalMonitoringSecret.Name,
+					Namespace: namespace,
+					Labels:    map[string]string{"gardener.cloud/purpose": "global-monitoring-secret-replica"},
+				},
+				Data: map[string][]byte{"username": []byte("old"), "password": []byte("old")},
+			}
+			Expect(fakeClient.Create(ctx, stale)).To(Succeed())
+
+			secret, err := ReplicateGlobalMonitoringSecret(ctx, fakeClient, globalMonitoringSecret, namespace, func(name string) string {
+				return "prefix-" + name
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(secret.Name).To(Equal("prefix-" + globalMonitoringSecret.Name))
+
+			secretList := &corev1.SecretList{}
+			Expect(fakeClient.List(ctx, secretList, client.InNamespace(namespace), client.MatchingLabels{"gardener.cloud/purpose": "global-monitoring-secret-replica"})).To(Succeed())
+			Expect(secretList.Items).To(HaveLen(1))
+			Expect(secretList.Items[0].Name).To(Equal(secret.Name))
 		})
 	})
 

@@ -47,6 +47,21 @@
       datasourceTemplate: 'github-releases',
     },
     {
+      // Detection for Gardener extension Helm chart references in dev-setup `extension.yaml` files.
+      // The OCI chart version matches the extension's GitHub release tag, so we track it via
+      // github-releases. The docker datasource for these files is disabled below to avoid duplicate updates.
+      customType: 'regex',
+      managerFilePatterns: [
+        '/^dev-setup/extensions/.+/extension\\.yaml$/',
+      ],
+      matchStrings: [
+        'charts/gardener/extensions/networking-(?<provider>[^:@\\s]+):(?<currentValue>[^@\\s]+)',
+        'charts/gardener/extensions/admission-(?<provider>[^-]+)-(?:runtime|application):(?<currentValue>[^@\\s]+)',
+      ],
+      depNameTemplate: 'gardener/gardener-extension-networking-{{{provider}}}',
+      datasourceTemplate: 'github-releases',
+    },
+    {
       // Generic detection for cli argument image specifications.
       customType: 'regex',
       managerFilePatterns: [
@@ -121,12 +136,15 @@
     },
     {
       // Run make generate when Go API packages have been changed because CRDs might have changed.
+      // Updates that match both this rule and the gomod make tidy rule above would run make generate only and
+      // silently skip make tidy, so this also runs make tidy.
       matchDatasources: [
         'go',
         'github-releases', // Required for the gardener groups.
       ],
       postUpgradeTasks: {
         commands: [
+          '/bin/bash -c "PATH=$PATH:$(go env GOROOT)/bin make tidy"',
           '/bin/bash -c "PATH=$PATH:$(go env GOROOT)/bin make generate MODE=sequential"',
         ],
         executionMode: 'branch',
@@ -137,6 +155,7 @@
         '/.*gardener/etcd-druid$/',
         '/.*gardener/machine-controller-manager$/',
         '/.*gardener/terminal-controller-manager$/',
+        '/.*gardener/pvc-autoscaler$/',
         '/.*open-telemetry/opentelemetry-operator$/',
         '/sigs\\.k8s\\.io/controller-tools/',
       ],
@@ -190,6 +209,7 @@
       matchPackageNames: [
         '/.*open-telemetry/opentelemetry-operator$/',
         '/github\\.com/open-telemetry/opentelemetry-operator$/',
+        '/github\\.com/open-telemetry/opentelemetry-operator/apis$/',
       ],
     },
     {
@@ -300,6 +320,30 @@
       ],
     },
     {
+      // Group PVC Autoscaler updates in one PR.
+      groupName: 'pvc-autoscaler',
+      matchDatasources: [
+        'go',
+        'github-releases',
+      ],
+      matchPackageNames: [
+        'github.com/gardener/pvc-autoscaler',
+        'gardener/pvc-autoscaler',
+      ],
+    },
+    {
+      // Group Helm updates in one PR.
+      groupName: 'helm',
+      matchDatasources: [
+        'go',
+        'github-releases',
+      ],
+      matchPackageNames: [
+        'helm/helm',
+        'helm.sh/helm/v4',
+      ],
+    },
+    {
       // Ask for manual approval to create PRs for minor and major updates of dependencies which most likely
       // require manual adaptations of the code.
       matchDatasources: [
@@ -407,7 +451,7 @@
         'go',
       ],
       matchFileNames: [
-        'hack/tools/logcheck/go\\.mod',
+        'hack/tools/go\\.mod',
       ],
       enabled: false,
     },

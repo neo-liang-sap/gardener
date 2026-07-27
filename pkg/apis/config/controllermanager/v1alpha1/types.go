@@ -58,6 +58,9 @@ type ControllerManagerControllerConfiguration struct {
 	// ControllerDeployment defines the configuration of the ControllerDeployment controller.
 	// +optional
 	ControllerDeployment *ControllerDeploymentControllerConfiguration `json:"controllerDeployment,omitempty"`
+	// ControllerDeploymentReference defines the configuration of the ControllerDeploymentReference controller.
+	// +optional
+	ControllerDeploymentReference *ControllerDeploymentReferenceControllerConfiguration `json:"controllerDeploymentReference,omitempty"`
 	// ControllerRegistration defines the configuration of the ControllerRegistration controller.
 	// +optional
 	ControllerRegistration *ControllerRegistrationControllerConfiguration `json:"controllerRegistration,omitempty"`
@@ -119,6 +122,9 @@ type ControllerManagerControllerConfiguration struct {
 	// ShootState defines the configuration of the ShootState finalizer controller.
 	// +optional
 	ShootState *ShootStateControllerConfiguration `json:"shootState,omitempty"`
+	// CacheSyncTimeout is the duration that is used for the timeout when waiting for the caches to sync (defaults to 2m).
+	// +optional
+	CacheSyncTimeout *metav1.Duration `json:"cacheSyncTimeout,omitempty"`
 }
 
 // BastionControllerConfiguration defines the configuration of the Bastion
@@ -166,6 +172,14 @@ type NamespacedCloudProfileControllerConfiguration struct {
 type ControllerDeploymentControllerConfiguration struct {
 	// ConcurrentSyncs is the number of workers used for the controller to work on
 	// events.
+	// +optional
+	ConcurrentSyncs *int `json:"concurrentSyncs,omitempty"`
+}
+
+// ControllerDeploymentReferenceControllerConfiguration defines the configuration of the
+// ControllerDeploymentReference controller.
+type ControllerDeploymentReferenceControllerConfiguration struct {
+	// ConcurrentSyncs is the number of workers used for the controller to work on controller deployments.
 	// +optional
 	ConcurrentSyncs *int `json:"concurrentSyncs,omitempty"`
 }

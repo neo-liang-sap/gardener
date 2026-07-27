@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
+	controllerconfig "sigs.k8s.io/controller-runtime/pkg/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -131,7 +132,9 @@ func run(ctx context.Context, cancel context.CancelFunc, log logr.Logger, cfg *g
 		Logger:                  log,
 		Scheme:                  kubernetes.SeedScheme,
 		GracefulShutdownTimeout: new(5 * time.Second),
-
+		Controller: controllerconfig.Controller{
+			CacheSyncTimeout: cfg.Controllers.CacheSyncTimeout.Duration,
+		},
 		HealthProbeBindAddress: net.JoinHostPort(cfg.Server.HealthProbes.BindAddress, strconv.Itoa(cfg.Server.HealthProbes.Port)),
 		Metrics: metricsserver.Options{
 			BindAddress:   net.JoinHostPort(cfg.Server.Metrics.BindAddress, strconv.Itoa(cfg.Server.Metrics.Port)),
@@ -417,13 +420,12 @@ func (g *garden) Start(ctx context.Context) error {
 						// Gardenlet does not have the required RBAC permissions for listing/watching the following
 						// resources on cluster level. Hence, we need to watch them individually with the help of a
 						// SingleObject cache.
-						&corev1.ConfigMap{}:                         kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.ConfigMap{}),
-						&corev1.Secret{}:                            kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.Secret{}),
-						&corev1.ServiceAccount{}:                    kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.ServiceAccount{}),
-						&gardencorev1.ControllerDeployment{}:        kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &gardencorev1.ControllerDeployment{}),
-						&gardencorev1beta1.ControllerRegistration{}: kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &gardencorev1beta1.ControllerRegistration{}),
-						&corev1.Namespace{}:                         kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.Namespace{}),
-						&gardencorev1beta1.Project{}:                kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &gardencorev1beta1.Project{}),
+						&corev1.ConfigMap{}:                  kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.ConfigMap{}),
+						&corev1.Secret{}:                     kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.Secret{}),
+						&corev1.ServiceAccount{}:             kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.ServiceAccount{}),
+						&gardencorev1.ControllerDeployment{}: kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &gardencorev1.ControllerDeployment{}),
+						&corev1.Namespace{}:                  kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &corev1.Namespace{}),
+						&gardencorev1beta1.Project{}:         kubernetes.SingleObjectCacheFunc(log, kubernetes.GardenScheme, &gardencorev1beta1.Project{}),
 					},
 					kubernetes.GardenScheme,
 				)(config, opts)
@@ -449,8 +451,12 @@ func (g *garden) Start(ctx context.Context) error {
 	}
 
 	log.Info("Adding field indexes to informers")
-	if err := addAllFieldIndexes(ctx, gardenCluster.GetFieldIndexer()); err != nil {
-		return fmt.Errorf("failed adding indexes: %w", err)
+	if err := addAllFieldIndexesToGardenClient(ctx, gardenCluster.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("failed adding indexes to garden client: %w", err)
+	}
+
+	if err := addAllFieldIndexesToSeedClient(ctx, g.mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("failed adding indexes to seed client: %w", err)
 	}
 
 	log.Info("Adding garden cluster to manager")
@@ -516,7 +522,7 @@ func (g *garden) Start(ctx context.Context) error {
 		return err
 	}
 
-	if err := g.runMigrations(ctx, log); err != nil {
+	if err := g.runMigrations(ctx, log, gardenCluster.GetClient()); err != nil {
 		return err
 	}
 
@@ -856,7 +862,7 @@ func (g *garden) overwriteGardenHostWhenDeployedInRuntimeCluster(ctx context.Con
 	return nil
 }
 
-func addAllFieldIndexes(ctx context.Context, i client.FieldIndexer) error {
+func addAllFieldIndexesToGardenClient(ctx context.Context, i client.FieldIndexer) error {
 	fns := []func(context.Context, client.FieldIndexer) error{
 		// core API group
 		indexer.AddBackupEntryBucketName,
@@ -882,6 +888,21 @@ func addAllFieldIndexes(ctx context.Context, i client.FieldIndexer) error {
 			indexer.AddBackupEntrySeedName,
 			indexer.AddControllerInstallationSeedRefName,
 		)
+	}
+
+	for _, fn := range fns {
+		if err := fn(ctx, i); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func addAllFieldIndexesToSeedClient(ctx context.Context, i client.FieldIndexer) error {
+	var fns []func(context.Context, client.FieldIndexer) error
+	if gardenlet.IsResponsibleForSelfHostedShoot() {
+		fns = append(fns, indexer.AddPodNodeName)
 	}
 
 	for _, fn := range fns {

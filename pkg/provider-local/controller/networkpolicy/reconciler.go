@@ -56,7 +56,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 				}},
 			}},
 			Ports: []networkingv1.NetworkPolicyPort{
-				// TODO(hown3d): Drop 8132 with RemoveHTTPProxyLegacyPort feature gate
+				// TODO(jamand): Drop 8132 once the RemoveHTTPProxyLegacyPort feature gate is removed.
+				// The local Extension does not register feature gates, so checking it would panic,
+				// adding the NetPol unconditionally does not break anything.
 				{Port: new(intstr.FromInt32(8132)), Protocol: new(corev1.ProtocolTCP)},
 				{Port: new(intstr.FromInt32(8443)), Protocol: new(corev1.ProtocolTCP)},
 				{Port: new(intstr.FromInt32(9443)), Protocol: new(corev1.ProtocolTCP)},
@@ -67,7 +69,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, request reconcile.Request) (
 		},
 		PolicyTypes: []networkingv1.PolicyType{networkingv1.PolicyTypeEgress},
 	}
-	if len(cluster.Seed.Spec.Provider.Zones) > 1 {
+	if cluster.Seed != nil && len(cluster.Seed.Spec.Provider.Zones) > 1 {
 		for _, zone := range cluster.Seed.Spec.Provider.Zones {
 			networkPolicyAllowToIstioIngressGateway.Spec.Egress[0].To = append(networkPolicyAllowToIstioIngressGateway.Spec.Egress[0].To, networkingv1.NetworkPolicyPeer{
 				NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/metadata.name": "istio-ingress--" + zone}},

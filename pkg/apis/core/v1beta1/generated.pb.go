@@ -2217,6 +2217,20 @@ func (m *ClusterAutoscaler) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.Autoscaling != nil {
+		{
+			size, err := m.Autoscaling.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintGenerated(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x1
+		i--
+		dAtA[i] = 0xc2
+	}
 	if m.MaxBinpackingTime != nil {
 		{
 			size, err := m.MaxBinpackingTime.MarshalToSizedBuffer(dAtA[:i])
@@ -2948,6 +2962,20 @@ func (m *ControllerInstallationSpec) MarshalToSizedBuffer(dAtA []byte) (int, err
 	_ = i
 	var l int
 	_ = l
+	if len(m.ResourceRefs) > 0 {
+		for iNdEx := len(m.ResourceRefs) - 1; iNdEx >= 0; iNdEx-- {
+			{
+				size, err := m.ResourceRefs[iNdEx].MarshalToSizedBuffer(dAtA[:i])
+				if err != nil {
+					return 0, err
+				}
+				i -= size
+				i = encodeVarintGenerated(dAtA, i, uint64(size))
+			}
+			i--
+			dAtA[i] = 0x2a
+		}
+	}
 	if m.ShootRef != nil {
 		{
 			size, err := m.ShootRef.MarshalToSizedBuffer(dAtA[:i])
@@ -3261,6 +3289,16 @@ func (m *ControllerResource) MarshalToSizedBuffer(dAtA []byte) (int, error) {
 	_ = i
 	var l int
 	_ = l
+	if m.ContinuousEndpointUpdate != nil {
+		i--
+		if *m.ContinuousEndpointUpdate {
+			dAtA[i] = 1
+		} else {
+			dAtA[i] = 0
+		}
+		i--
+		dAtA[i] = 0x50
+	}
 	if len(m.ClusterCompatibility) > 0 {
 		for iNdEx := len(m.ClusterCompatibility) - 1; iNdEx >= 0; iNdEx-- {
 			i -= len(m.ClusterCompatibility[iNdEx])
@@ -6902,6 +6940,23 @@ func (m *MachineControllerManagerSettings) MarshalToSizedBuffer(dAtA []byte) (in
 	_ = i
 	var l int
 	_ = l
+	if m.AutoPreserveFailedMachineMax != nil {
+		i = encodeVarintGenerated(dAtA, i, uint64(*m.AutoPreserveFailedMachineMax))
+		i--
+		dAtA[i] = 0x48
+	}
+	if m.MachinePreserveTimeout != nil {
+		{
+			size, err := m.MachinePreserveTimeout.MarshalToSizedBuffer(dAtA[:i])
+			if err != nil {
+				return 0, err
+			}
+			i -= size
+			i = encodeVarintGenerated(dAtA, i, uint64(size))
+		}
+		i--
+		dAtA[i] = 0x42
+	}
 	if m.DisableHealthTimeout != nil {
 		i--
 		if *m.DisableHealthTimeout {
@@ -14255,6 +14310,10 @@ func (m *ClusterAutoscaler) Size() (n int) {
 		l = m.MaxBinpackingTime.Size()
 		n += 2 + l + sovGenerated(uint64(l))
 	}
+	if m.Autoscaling != nil {
+		l = m.Autoscaling.Size()
+		n += 2 + l + sovGenerated(uint64(l))
+	}
 	return n
 }
 
@@ -14445,6 +14504,12 @@ func (m *ControllerInstallationSpec) Size() (n int) {
 		l = m.ShootRef.Size()
 		n += 1 + l + sovGenerated(uint64(l))
 	}
+	if len(m.ResourceRefs) > 0 {
+		for _, e := range m.ResourceRefs {
+			l = e.Size()
+			n += 1 + l + sovGenerated(uint64(l))
+		}
+	}
 	return n
 }
 
@@ -14574,6 +14639,9 @@ func (m *ControllerResource) Size() (n int) {
 			l = len(s)
 			n += 1 + l + sovGenerated(uint64(l))
 		}
+	}
+	if m.ContinuousEndpointUpdate != nil {
+		n += 2
 	}
 	return n
 }
@@ -15949,6 +16017,13 @@ func (m *MachineControllerManagerSettings) Size() (n int) {
 	}
 	if m.DisableHealthTimeout != nil {
 		n += 2
+	}
+	if m.MachinePreserveTimeout != nil {
+		l = m.MachinePreserveTimeout.Size()
+		n += 1 + l + sovGenerated(uint64(l))
+	}
+	if m.AutoPreserveFailedMachineMax != nil {
+		n += 1 + sovGenerated(uint64(*m.AutoPreserveFailedMachineMax))
 	}
 	return n
 }
@@ -18869,6 +18944,7 @@ func (this *ClusterAutoscaler) String() string {
 		`NodeGroupBackoffResetTimeout:` + strings.Replace(fmt.Sprintf("%v", this.NodeGroupBackoffResetTimeout), "Duration", "v11.Duration", 1) + `,`,
 		`EmitPerNodeGroupMetrics:` + valueToStringGenerated(this.EmitPerNodeGroupMetrics) + `,`,
 		`MaxBinpackingTime:` + strings.Replace(fmt.Sprintf("%v", this.MaxBinpackingTime), "Duration", "v11.Duration", 1) + `,`,
+		`Autoscaling:` + strings.Replace(this.Autoscaling.String(), "ControlPlaneAutoscaling", "ControlPlaneAutoscaling", 1) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -19005,11 +19081,17 @@ func (this *ControllerInstallationSpec) String() string {
 	if this == nil {
 		return "nil"
 	}
+	repeatedStringForResourceRefs := "[]ObjectReference{"
+	for _, f := range this.ResourceRefs {
+		repeatedStringForResourceRefs += fmt.Sprintf("%v", f) + ","
+	}
+	repeatedStringForResourceRefs += "}"
 	s := strings.Join([]string{`&ControllerInstallationSpec{`,
 		`RegistrationRef:` + strings.Replace(strings.Replace(fmt.Sprintf("%v", this.RegistrationRef), "ObjectReference", "v1.ObjectReference", 1), `&`, ``, 1) + `,`,
 		`SeedRef:` + strings.Replace(fmt.Sprintf("%v", this.SeedRef), "ObjectReference", "v1.ObjectReference", 1) + `,`,
 		`DeploymentRef:` + strings.Replace(fmt.Sprintf("%v", this.DeploymentRef), "ObjectReference", "v1.ObjectReference", 1) + `,`,
 		`ShootRef:` + strings.Replace(fmt.Sprintf("%v", this.ShootRef), "ObjectReference", "v1.ObjectReference", 1) + `,`,
+		`ResourceRefs:` + repeatedStringForResourceRefs + `,`,
 		`}`,
 	}, "")
 	return s
@@ -19103,6 +19185,7 @@ func (this *ControllerResource) String() string {
 		`WorkerlessSupported:` + valueToStringGenerated(this.WorkerlessSupported) + `,`,
 		`AutoEnable:` + fmt.Sprintf("%v", this.AutoEnable) + `,`,
 		`ClusterCompatibility:` + fmt.Sprintf("%v", this.ClusterCompatibility) + `,`,
+		`ContinuousEndpointUpdate:` + valueToStringGenerated(this.ContinuousEndpointUpdate) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -20003,6 +20086,8 @@ func (this *MachineControllerManagerSettings) String() string {
 		`NodeConditions:` + fmt.Sprintf("%v", this.NodeConditions) + `,`,
 		`MachineInPlaceUpdateTimeout:` + strings.Replace(fmt.Sprintf("%v", this.MachineInPlaceUpdateTimeout), "Duration", "v11.Duration", 1) + `,`,
 		`DisableHealthTimeout:` + valueToStringGenerated(this.DisableHealthTimeout) + `,`,
+		`MachinePreserveTimeout:` + strings.Replace(fmt.Sprintf("%v", this.MachinePreserveTimeout), "Duration", "v11.Duration", 1) + `,`,
+		`AutoPreserveFailedMachineMax:` + valueToStringGenerated(this.AutoPreserveFailedMachineMax) + `,`,
 		`}`,
 	}, "")
 	return s
@@ -27390,6 +27475,42 @@ func (m *ClusterAutoscaler) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 24:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Autoscaling", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.Autoscaling == nil {
+				m.Autoscaling = &ControlPlaneAutoscaling{}
+			}
+			if err := m.Autoscaling.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -28974,6 +29095,40 @@ func (m *ControllerInstallationSpec) Unmarshal(dAtA []byte) error {
 				return err
 			}
 			iNdEx = postIndex
+		case 5:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ResourceRefs", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.ResourceRefs = append(m.ResourceRefs, v1.ObjectReference{})
+			if err := m.ResourceRefs[len(m.ResourceRefs)-1].Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -29892,6 +30047,27 @@ func (m *ControllerResource) Unmarshal(dAtA []byte) error {
 			}
 			m.ClusterCompatibility = append(m.ClusterCompatibility, ClusterType(dAtA[iNdEx:postIndex]))
 			iNdEx = postIndex
+		case 10:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field ContinuousEndpointUpdate", wireType)
+			}
+			var v int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			b := bool(v != 0)
+			m.ContinuousEndpointUpdate = &b
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])
@@ -40534,6 +40710,62 @@ func (m *MachineControllerManagerSettings) Unmarshal(dAtA []byte) error {
 			}
 			b := bool(v != 0)
 			m.DisableHealthTimeout = &b
+		case 8:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field MachinePreserveTimeout", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				msglen |= int(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			postIndex := iNdEx + msglen
+			if postIndex < 0 {
+				return ErrInvalidLengthGenerated
+			}
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			if m.MachinePreserveTimeout == nil {
+				m.MachinePreserveTimeout = &v11.Duration{}
+			}
+			if err := m.MachinePreserveTimeout.Unmarshal(dAtA[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		case 9:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field AutoPreserveFailedMachineMax", wireType)
+			}
+			var v int32
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowGenerated
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := dAtA[iNdEx]
+				iNdEx++
+				v |= int32(b&0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			m.AutoPreserveFailedMachineMax = &v
 		default:
 			iNdEx = preIndex
 			skippy, err := skipGenerated(dAtA[iNdEx:])

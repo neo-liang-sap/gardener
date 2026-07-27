@@ -166,6 +166,13 @@ func SetDefaults_ControllerDeploymentControllerConfiguration(obj *ControllerDepl
 	}
 }
 
+// SetDefaults_ControllerDeploymentReferenceControllerConfiguration sets defaults for the ControllerDeploymentReferenceControllerConfiguration.
+func SetDefaults_ControllerDeploymentReferenceControllerConfiguration(obj *ControllerDeploymentReferenceControllerConfiguration) {
+	if obj.ConcurrentSyncs == nil {
+		obj.ConcurrentSyncs = new(DefaultControllerConcurrentSyncs)
+	}
+}
+
 // SetDefaults_ControllerRegistrationControllerConfiguration sets defaults for the ControllerRegistrationControllerConfiguration.
 func SetDefaults_ControllerRegistrationControllerConfiguration(obj *ControllerRegistrationControllerConfiguration) {
 	if obj.ConcurrentSyncs == nil {
@@ -332,6 +339,9 @@ func SetDefaults_ControllerManagerControllerConfiguration(obj *ControllerManager
 	if obj.ControllerDeployment == nil {
 		obj.ControllerDeployment = &ControllerDeploymentControllerConfiguration{}
 	}
+	if obj.ControllerDeploymentReference == nil {
+		obj.ControllerDeploymentReference = &ControllerDeploymentReferenceControllerConfiguration{}
+	}
 	if obj.ControllerRegistration == nil {
 		obj.ControllerRegistration = &ControllerRegistrationControllerConfiguration{}
 	}
@@ -390,5 +400,8 @@ func SetDefaults_ControllerManagerControllerConfiguration(obj *ControllerManager
 	}
 	if obj.ShootState == nil {
 		obj.ShootState = &ShootStateControllerConfiguration{}
+	}
+	if obj.CacheSyncTimeout == nil {
+		obj.CacheSyncTimeout = &metav1.Duration{Duration: 2 * time.Minute}
 	}
 }

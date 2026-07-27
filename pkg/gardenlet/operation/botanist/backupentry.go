@@ -27,11 +27,11 @@ func (b *Botanist) DefaultCoreBackupEntry() corebackupentry.Interface {
 		ShootPurpose:   b.Shoot.GetInfo().Spec.Purpose,
 		OwnerReference: ownerRef,
 		SeedName:       b.Shoot.GetInfo().Spec.SeedName,
-		BucketName:     string(b.Seed.GetInfo().UID),
+		BucketName:     string(b.Shoot.GetInfo().Status.UID),
 	}
 
-	if b.Shoot.RunsControlPlane() {
-		values.BucketName = string(b.Shoot.GetInfo().Status.UID)
+	if !b.Shoot.RunsControlPlane() {
+		values.BucketName = string(b.Seed.GetInfo().UID)
 	}
 
 	if b.Shoot.IsSelfHosted() {
@@ -51,7 +51,7 @@ func (b *Botanist) DefaultCoreBackupEntry() corebackupentry.Interface {
 // DeployBackupEntry deploys the BackupEntry resource in the Garden cluster and triggers the restore operation in case
 // the Shoot is in the restore phase of the control plane migration.
 func (b *Botanist) DeployBackupEntry(ctx context.Context) error {
-	if b.IsRestorePhase() {
+	if b.Shoot.IsRestorePhase() {
 		return b.Shoot.Components.BackupEntry.Restore(ctx, b.Shoot.GetShootState())
 	}
 	return b.Shoot.Components.BackupEntry.Deploy(ctx)

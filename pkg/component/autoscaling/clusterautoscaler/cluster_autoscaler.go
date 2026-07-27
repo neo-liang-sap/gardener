@@ -272,14 +272,20 @@ func (c *clusterAutoscaler) Deploy(ctx context.Context) error {
 			Name:       v1beta1constants.DeploymentNameClusterAutoscaler,
 		}
 		vpa.Spec.UpdatePolicy = &vpaautoscalingv1.PodUpdatePolicy{
-			UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+			UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 		}
+
+		containerPolicy := vpaautoscalingv1.ContainerResourcePolicy{
+			ContainerName:    containerName,
+			ControlledValues: new(vpaautoscalingv1.ContainerControlledValuesRequestsOnly),
+		}
+		if c.config != nil && c.config.Autoscaling != nil {
+			containerPolicy.MinAllowed = c.config.Autoscaling.MinAllowed
+		}
+
 		vpa.Spec.ResourcePolicy = &vpaautoscalingv1.PodResourcePolicy{
 			ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
-				{
-					ContainerName:    containerName,
-					ControlledValues: new(vpaautoscalingv1.ContainerControlledValuesRequestsOnly),
-				},
+				containerPolicy,
 				{
 					ContainerName: vpaautoscalingv1.DefaultContainerResourcePolicy,
 					Mode:          new(vpaautoscalingv1.ContainerScalingModeOff),
@@ -539,6 +545,15 @@ func (c *clusterAutoscaler) computeCommand(workersHavePriorityConfigured bool) [
 
 	for _, machineDeployment := range c.machineDeployments {
 		command = append(command, fmt.Sprintf("--nodes=%d:%d:%s.%s", machineDeployment.Minimum, machineDeployment.Maximum, c.namespace, machineDeployment.Name))
+	}
+	// If auto-preservation of machines is active, disable CA's cluster health check by setting maxTotalUnreadyPercentage to 100%.
+	// The isClusterHealthy check disables scaling if more than maxTotalUnreadyPercentage of nodes are not Ready.
+	// Disabling this check allows unscheduled workload from these failed preserved nodes to trigger scale up.
+	for _, workerConfig := range c.workerConfig {
+		if workerConfig.MachineControllerManagerSettings != nil && ptr.Deref(workerConfig.MachineControllerManagerSettings.AutoPreserveFailedMachineMax, 0) > 0 {
+			command = append(command, "--max-total-unready-percentage=100")
+			break
+		}
 	}
 
 	return command

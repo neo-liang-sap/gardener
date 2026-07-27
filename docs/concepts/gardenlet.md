@@ -365,7 +365,7 @@ This reconciler is responsible for managing the seed's system components.
 Those comprise CA certificates, the various `CustomResourceDefinition`s, the logging and monitoring stacks, and few central components like `gardener-resource-manager`, `etcd-druid`, `istio`, etc.
 
 The reconciler also deploys a `BackupBucket` resource in the garden cluster in case the `Seed'`s `.spec.backup` is set.
-It also checks whether the seed cluster's Kubernetes version is at least the [minimum supported version](../usage/shoot-operations/supported_k8s_versions.md#seed-cluster-versions) and errors in case this constraint is not met.
+It also checks whether the seed cluster's Kubernetes version is at least the [minimum supported version](../usage/shoot-operations/supported_k8s_versions.md#seed-clusters) and errors in case this constraint is not met.
 
 This reconciler maintains the `.status.lastOperation` field, i.e. it sets it:
 
@@ -453,8 +453,8 @@ It maintains the following conditions:
 - `APIServerAvailable`: The `/healthz` endpoint of the shoot's `kube-apiserver` is called and considered healthy when it responds with `200 OK`.
 - `ControlPlaneHealthy`: The control plane is considered healthy when the respective `Deployment`s (for example `kube-apiserver`,`kube-controller-manager`), and `Etcd`s (for example `etcd-main`) exist and are healthy.
 - `ObservabilityComponentsHealthy`: This condition is considered healthy when the respective `Deployment`s (for example `plutono`) and `StatefulSet`s (for example `prometheus`,`vali`) exist and are healthy.
-- `EveryNodeReady`: The conditions of the worker nodes are checked (e.g., `Ready`, `MemoryPressure`). Also, it's checked whether the Kubernetes version of the installed `kubelet` matches the desired version specified in the `Shoot` resource.
-- `SystemComponentsHealthy`: The conditions of the `ManagedResource`s are checked (e.g., `ResourcesApplied`). Also, it is verified whether the VPN tunnel connection is established (which is required for the `kube-apiserver` to communicate with the worker nodes).
+- `EveryNodeReady`: The conditions of the worker nodes are checked (e.g., `Ready`, `MemoryPressure`). Also, it's checked whether the Kubernetes version of the installed `kubelet` matches the desired version specified in the `Shoot` resource. Preserved unhealthy nodes (machines in `Failed` phase that have been preserved) are excluded from lease, systemd-unit, and scaling checks and are reported with an explanatory suffix rather than immediately failing the condition.
+  - `SystemComponentsHealthy`: The conditions of the `ManagedResource`s are checked (e.g., `ResourcesApplied`). Also, it is verified whether the VPN tunnel connection is established (which is required for the `kube-apiserver` to communicate with the worker nodes). When the `PreservedFailedMachinesAbsent` constraint is `False`, `DaemonSet` failures attributable entirely to pods scheduled on preserved nodes are suppressed, provided there are no other system component failures.
 
 For self-hosted shoot clusters, the reconciler additionally maintains:
 
@@ -526,6 +526,14 @@ Please refer to [GEP-0022: Improved Usage of the `ShootState` API](https://githu
 ### ["Status" Reconciler](../../pkg/gardenlet/controller/shoot/status)
 
 This reconciler watches for the `extensionsv1alpha1.Worker` resource in the control plane namespace of the `Shoot` and if its `status.inPlaceUpdates.workerPoolToHashMap` has changed, it requeues the corresponding `Shoot`. A worker pool is removed from `status.inPlaceUpdates.pendingWorkersRollouts.manualInPlaceUpdate` field in the `Shoot` if the hash of the worker pool in the `Shoot` spec and the `Worker` status field matches. This indicates that all the nodes of that worker pool are successfully updated and are no longer pending manual in-place updates.
+
+### [`SelfHostedShootExposure` Reconciler](../../pkg/gardenlet/controller/shoot/selfhostedshootexposure)
+
+This reconciler only runs if `gardenlet` is responsible for a self-hosted `Shoot`.
+It keeps its API server exposure in sync with the control-plane `Node`s.
+Depending on `spec.provider.workers[].controlPlane.exposure`, it either maintains the `SelfHostedShootExposure` extension resource's endpoints and updates the external `DNSRecord` from the reported ingress (extension-based exposure), or points the external `DNSRecord` directly at the control-plane node addresses (DNS-based exposure).
+When the mechanism is switched or exposure is removed, it updates the `DNSRecord` a final time and deletes the obsolete `SelfHostedShootExposure`.
+Please refer to [GEP-0036: Self-Hosted Shoot Exposure](https://github.com/gardener/enhancements/tree/main/geps/0036-self-hosted-shoot-exposure) for more details.
 
 ### [`TokenRequestor` Controller For `ServiceAccount`s](../../pkg/controller/tokenrequestor)
 

@@ -886,6 +886,65 @@ units: {}
 		Eventually(cancelFunc.called).Should(BeTrue())
 	})
 
+	It("should still restart the node-agent when a third-party unit fails to start", func() {
+		// Regression guard: when an OSC update both changes the node-agent config and adds a
+		// third-party unit that fails to start, the self-restart must still happen. Without the
+		// fix, executeUnitCommands returns the failure and the reconcile bails out before the
+		// restart, leaving the node-agent running with the old config.
+		By("Wait until last-applied OSC file is persisted")
+		Eventually(func() error {
+			_, err := fakeFS.ReadFile("/var/lib/gardener-node-agent/last-applied-osc.yaml")
+			return err
+		}).Should(Succeed())
+
+		fakeDBus.Actions = nil
+
+		By("Inject a failure for the upcoming restart of a third-party unit")
+		failingUnit := extensionsv1alpha1.Unit{
+			Name:    "failing-third-party.service",
+			Enable:  new(true),
+			Command: new(extensionsv1alpha1.CommandRestart),
+			Content: new("#failing"),
+		}
+		fakeDBus.InjectRestartFailure(fmt.Errorf("simulated failure: dependent state not ready"), failingUnit.Name)
+
+		By("Update Operating System Config with both the node-agent unit and the failing unit")
+		operatingSystemConfig.Spec.Units = append(operatingSystemConfig.Spec.Units, gnaUnit, failingUnit)
+
+		var err error
+		oscRaw, err = runtime.Encode(codec, operatingSystemConfig)
+		Expect(err).NotTo(HaveOccurred())
+
+		By("Update Secret containing the operating system config")
+		patch := client.MergeFrom(oscSecret.DeepCopy())
+		oscSecret.Annotations["checksum/data-script"] = utils.ComputeSHA256Hex(oscRaw)
+		oscSecret.Data["osc.yaml"] = oscRaw
+		Expect(testClient.Patch(ctx, oscSecret, patch)).To(Succeed())
+
+		By("Wait for the manager cache to observe the updated secret")
+		Eventually(func(g Gomega) []byte {
+			updatedSecret := &corev1.Secret{}
+			g.Expect(mgrClient.Get(ctx, client.ObjectKeyFromObject(oscSecret), updatedSecret)).To(Succeed())
+			return updatedSecret.Data["osc.yaml"]
+		}).Should(Equal(oscSecret.Data["osc.yaml"]))
+
+		By("Expect that cancel func is called despite the failing third-party unit")
+		Eventually(func() bool { return cancelFunc.called }).Should(BeTrue())
+
+		By("Assert that the node-agent self-restart path was taken")
+		// The persisted changes file is used to detect that the node-agent unit is
+		// stripped from Units.Commands, and MustRestartNodeAgent is back to false
+		// (cleared by restartNodeAgent before signalling the cancel).
+		Eventually(func(g Gomega) string {
+			content, err := fakeFS.ReadFile("/var/lib/gardener-node-agent/last-computed-osc-changes.yaml")
+			g.Expect(err).NotTo(HaveOccurred())
+			return string(content)
+		}).Should(And(
+			ContainSubstring("mustRestartNodeAgent: false"),
+			Not(ContainSubstring("name: "+gnaUnit.Name)),
+		))
+	})
+
 	Context("when CRI is not containerd", func() {
 		BeforeEach(func() {
 			operatingSystemConfig.Spec.CRIConfig = nil
@@ -1169,14 +1228,18 @@ kubeReserved:
 				Permissions: new(uint32(0600)),
 			}
 
+			tempDir := GinkgoT().TempDir()
 			nodeAgentConfig = &nodeagentconfigv1alpha1.NodeAgentConfiguration{
 				APIServer: nodeagentconfigv1alpha1.APIServer{
-					CABundle: []byte("new-ca-bundle"),
-					Server:   "https://test-server",
+					CAFile: tempDir + "/ca-bundle.crt",
+					Server: "https://test-server",
 				},
 			}
+			Expect(fakeFS.WriteFile(nodeAgentConfig.APIServer.CAFile, []byte("ca-bundle"), 0600)).To(Succeed())
+			// clientcmd validates certificate-authority paths via os.Open, so the file must exist on the real OS filesystem too.
+			Expect(os.WriteFile(nodeAgentConfig.APIServer.CAFile, []byte("ca-bundle"), 0600)).To(Succeed())
 
-			nodeAgentKubeconfig := getNodeAgentKubeConfig([]byte("old-ca-bundle"), nodeAgentConfig.APIServer.Server, "old-cert")
+			nodeAgentKubeconfig := getNodeAgentKubeConfig(nodeAgentConfig.APIServer.CAFile, nodeAgentConfig.APIServer.Server, "old-cert")
 			Expect(fakeFS.WriteFile(nodeagentconfigv1alpha1.KubeconfigFilePath, []byte(nodeAgentKubeconfig), 0600)).To(Succeed())
 
 			nodeAgentConfigFile := extensionsv1alpha1.File{
@@ -1185,7 +1248,7 @@ kubeReserved:
 					Inline: &extensionsv1alpha1.FileContentInline{
 						Encoding: "b64",
 						Data: utils.EncodeBase64([]byte(`apiServer:
-  caBundle: ` + utils.EncodeBase64(nodeAgentConfig.APIServer.CABundle) + `
+  caFile: ` + nodeAgentConfig.APIServer.CAFile + `
   server: ` + nodeAgentConfig.APIServer.Server + `
 apiVersion: nodeagent.config.gardener.cloud/v1alpha1
 kind: NodeAgentConfiguration
@@ -1214,14 +1277,7 @@ kind: NodeAgentConfiguration
 				&operatingsystemconfig.KubeletHealthCheckRetryInterval, 200*time.Millisecond,
 				&healthcheckcontroller.DefaultKubeletHealthEndpoint, server.URL,
 				&operatingsystemconfig.RequestAndStoreKubeconfig, func(_ context.Context, _ logr.Logger, fs afero.Afero, restConfig *rest.Config, _ string) error {
-					nodeAgentConfig := &nodeagentconfigv1alpha1.NodeAgentConfiguration{
-						APIServer: nodeagentconfigv1alpha1.APIServer{
-							CABundle: []byte("new-ca-bundle"),
-							Server:   "https://test-server",
-						},
-					}
-
-					newKubeConfig := getNodeAgentKubeConfig(restConfig.CAData, nodeAgentConfig.APIServer.Server, "new-cert")
+					newKubeConfig := getNodeAgentKubeConfig(restConfig.CAFile, nodeAgentConfig.APIServer.Server, "new-cert")
 
 					Expect(fs.WriteFile(nodeagentconfigv1alpha1.KubeconfigFilePath, []byte(newKubeConfig), 0600)).To(Succeed())
 
@@ -1454,7 +1510,7 @@ preferences: {}
 			expectedBootStrapConfig := `apiVersion: v1
 clusters:
 - cluster:
-    certificate-authority-data: ` + utils.EncodeBase64(nodeAgentConfig.APIServer.CABundle) + `
+    certificate-authority: ` + nodeAgentConfig.APIServer.CAFile + `
     server: ` + nodeAgentConfig.APIServer.Server + `
   name: default-cluster
 contexts:
@@ -1473,7 +1529,7 @@ users:
 			test.AssertFileOnDisk(fakeFS, kubelet.PathKubeconfigBootstrap, expectedBootStrapConfig, 0600)
 
 			// Verify the kubeconfig has the latest CA
-			expectedNodeAgentKubeConfig := getNodeAgentKubeConfig(nodeAgentConfig.APIServer.CABundle, nodeAgentConfig.APIServer.Server, "new-cert")
+			expectedNodeAgentKubeConfig := getNodeAgentKubeConfig(nodeAgentConfig.APIServer.CAFile, nodeAgentConfig.APIServer.Server, "new-cert")
 			test.AssertFileOnDisk(fakeFS, nodeagentconfigv1alpha1.KubeconfigFilePath, expectedNodeAgentKubeConfig, 0600)
 
 			By("Assert that unit actions have been applied")
@@ -1549,11 +1605,11 @@ func waitForUpdatedNodeLabelUpdateResultSuccessful(node *corev1.Node) {
 	}).Should(HaveKeyWithValue(machinev1alpha1.LabelKeyNodeUpdateResult, machinev1alpha1.LabelValueNodeUpdateSuccessful))
 }
 
-func getNodeAgentKubeConfig(caBundle []byte, server, clientCertificate string) string {
+func getNodeAgentKubeConfig(caFile, server, clientCertificate string) string {
 	return `apiVersion: v1
 clusters:
 - cluster:
-    certificate-authority-data: ` + utils.EncodeBase64(caBundle) + `
+    certificate-authority: ` + caFile + `
     server: ` + server + `
   name: node-agent
 contexts:

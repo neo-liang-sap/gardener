@@ -306,17 +306,19 @@ var _ = Describe("Etcd", func() {
 					"networking.resources.gardener.cloud/to-etcd-" + role + "-client-tcp-2380": "allowed",
 					"networking.resources.gardener.cloud/to-etcd-" + role + "-client-tcp-8080": "allowed",
 				})
-				obj.Spec.Etcd.PeerUrlTLS = &druidcorev1alpha1.TLSConfig{
-					ServerTLSSecretRef: corev1.SecretReference{
-						Name:      secretNameServerPeer,
-						Namespace: testNamespace,
-					},
-					TLSCASecretRef: druidcorev1alpha1.SecretReference{
-						SecretReference: corev1.SecretReference{
-							Name:      secretNamePeerCA,
+				obj.Spec.Etcd.PeerUrlTLS = &druidcorev1alpha1.PeerTLSConfig{
+					TLSConfig: druidcorev1alpha1.TLSConfig{
+						ServerTLSSecretRef: corev1.SecretReference{
+							Name:      secretNameServerPeer,
 							Namespace: testNamespace,
 						},
-						DataKey: new(secretsutils.DataKeyCertificateBundle),
+						TLSCASecretRef: druidcorev1alpha1.SecretReference{
+							SecretReference: corev1.SecretReference{
+								Name:      secretNamePeerCA,
+								Namespace: testNamespace,
+							},
+							DataKey: new(secretsutils.DataKeyCertificateBundle),
+						},
 					},
 				}
 			}
@@ -403,7 +405,7 @@ var _ = Describe("Etcd", func() {
 						Name:       etcdName,
 					},
 					UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-						UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+						UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 					},
 					ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 						ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -939,26 +941,133 @@ var _ = Describe("Etcd", func() {
 			Expect(etcd.Annotations).To(HaveKeyWithValue("foo", "bar"))
 		})
 
-		It("should successfully deploy (normal etcd) and keep the existing defragmentation schedule", func() {
-			existingDefragmentationSchedule := "foobardefragexisting"
+		DescribeTable("should correctly handle the existing defragmentation schedule",
+			func(existingSchedule string, expectedSchedule string) {
+				Expect(c.Create(ctx, &druidcorev1alpha1.Etcd{
+					ObjectMeta: metav1.ObjectMeta{Name: etcdName, Namespace: testNamespace},
+					Spec: druidcorev1alpha1.EtcdSpec{
+						Etcd: druidcorev1alpha1.EtcdConfig{
+							DefragmentationSchedule: &existingSchedule,
+						},
+					},
+					Status: druidcorev1alpha1.EtcdStatus{
+						Etcd: &druidcorev1alpha1.CrossVersionObjectReference{Name: etcdName},
+					},
+				})).To(Succeed())
 
+				Expect(etcd.Deploy(ctx)).To(Succeed())
+
+				deployed := &druidcorev1alpha1.Etcd{}
+				Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, deployed)).To(Succeed())
+				Expect(deployed.Spec.Etcd.DefragmentationSchedule).To(HaveValue(Equal(expectedSchedule)))
+			},
+			Entry("should keep daily defrag schedule", "24 3 * * *", "24 3 * * *"),
+			Entry("should keep daily defrag schedule (*/1)", "24 3 */1 * *", "24 3 */1 * *"),
+			Entry("should update every-Two-days defrag schedule to daily", "24 3 */2 * *", defragmentationSchedule),
+			Entry("should update every-Three-days defrag schedule to daily", "24 3 */3 * *", defragmentationSchedule),
+		)
+
+		It("should set spec.memberNamePrefix when the Etcd resource does not yet exist", func() {
+			etcd = New(log, c, testNamespace, sm, Values{
+				Role:                    role,
+				Class:                   class,
+				Replicas:                replicas,
+				Autoscaling:             autoscalingConfig,
+				StorageCapacity:         storageCapacity,
+				StorageClassName:        &storageClassName,
+				DefragmentationSchedule: &defragmentationSchedule,
+				CARotationPhase:         caRotationPhase,
+				PriorityClassName:       priorityClassName,
+				MaintenanceTimeWindow:   maintenanceTimeWindow,
+				HighAvailabilityEnabled: highAvailabilityEnabled,
+				BackupConfig:            backupConfig,
+				StaticPodConfig:         staticPodConfig,
+				MemberNamePrefix:        "my-seed",
+			})
+
+			Expect(etcd.Deploy(ctx)).To(Succeed())
+
+			actual := &druidcorev1alpha1.Etcd{}
+			Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, actual)).To(Succeed())
+			Expect(actual.Spec.MemberNamePrefix).NotTo(BeNil())
+			Expect(*actual.Spec.MemberNamePrefix).To(Equal("my-seed"))
+		})
+
+		It("should not set spec.memberNamePrefix when the values are empty and the Etcd resource does not yet exist", func() {
+			Expect(etcd.Deploy(ctx)).To(Succeed())
+
+			actual := &druidcorev1alpha1.Etcd{}
+			Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, actual)).To(Succeed())
+			Expect(actual.Spec.MemberNamePrefix).To(BeNil())
+		})
+
+		It("should not overwrite spec.memberNamePrefix when the Etcd resource already exists (immutable field)", func() {
+			existingPrefix := "existing-prefix"
 			Expect(c.Create(ctx, &druidcorev1alpha1.Etcd{
 				ObjectMeta: metav1.ObjectMeta{Name: etcdName, Namespace: testNamespace},
 				Spec: druidcorev1alpha1.EtcdSpec{
-					Etcd: druidcorev1alpha1.EtcdConfig{
-						DefragmentationSchedule: &existingDefragmentationSchedule,
-					},
+					MemberNamePrefix: &existingPrefix,
 				},
 				Status: druidcorev1alpha1.EtcdStatus{
 					Etcd: &druidcorev1alpha1.CrossVersionObjectReference{Name: etcdName},
 				},
 			})).To(Succeed())
 
+			etcd = New(log, c, testNamespace, sm, Values{
+				Role:                    role,
+				Class:                   class,
+				Replicas:                replicas,
+				Autoscaling:             autoscalingConfig,
+				StorageCapacity:         storageCapacity,
+				StorageClassName:        &storageClassName,
+				DefragmentationSchedule: &defragmentationSchedule,
+				CARotationPhase:         caRotationPhase,
+				PriorityClassName:       priorityClassName,
+				MaintenanceTimeWindow:   maintenanceTimeWindow,
+				HighAvailabilityEnabled: highAvailabilityEnabled,
+				BackupConfig:            backupConfig,
+				StaticPodConfig:         staticPodConfig,
+				MemberNamePrefix:        "different-prefix",
+			})
+
 			Expect(etcd.Deploy(ctx)).To(Succeed())
 
-			etcd := &druidcorev1alpha1.Etcd{}
-			Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, etcd)).To(Succeed())
-			Expect(etcd.Spec.Etcd.DefragmentationSchedule).To(HaveValue(Equal(existingDefragmentationSchedule)))
+			actual := &druidcorev1alpha1.Etcd{}
+			Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, actual)).To(Succeed())
+			Expect(actual.Spec.MemberNamePrefix).NotTo(BeNil())
+			Expect(*actual.Spec.MemberNamePrefix).To(Equal(existingPrefix))
+		})
+
+		It("should not add spec.memberNamePrefix to an existing Etcd resource that was created without one", func() {
+			Expect(c.Create(ctx, &druidcorev1alpha1.Etcd{
+				ObjectMeta: metav1.ObjectMeta{Name: etcdName, Namespace: testNamespace},
+				Status: druidcorev1alpha1.EtcdStatus{
+					Etcd: &druidcorev1alpha1.CrossVersionObjectReference{Name: etcdName},
+				},
+			})).To(Succeed())
+
+			etcd = New(log, c, testNamespace, sm, Values{
+				Role:                    role,
+				Class:                   class,
+				Replicas:                replicas,
+				Autoscaling:             autoscalingConfig,
+				StorageCapacity:         storageCapacity,
+				StorageClassName:        &storageClassName,
+				DefragmentationSchedule: &defragmentationSchedule,
+				CARotationPhase:         caRotationPhase,
+				PriorityClassName:       priorityClassName,
+				MaintenanceTimeWindow:   maintenanceTimeWindow,
+				HighAvailabilityEnabled: highAvailabilityEnabled,
+				BackupConfig:            backupConfig,
+				StaticPodConfig:         staticPodConfig,
+				MemberNamePrefix:        "my-seed",
+			})
+
+			Expect(etcd.Deploy(ctx)).To(Succeed())
+
+			actual := &druidcorev1alpha1.Etcd{}
+			Expect(c.Get(ctx, client.ObjectKey{Namespace: testNamespace, Name: etcdName}, actual)).To(Succeed())
+			Expect(actual.Spec.MemberNamePrefix).To(BeNil())
 		})
 
 		It("should successfully deploy (normal etcd) and not keep the existing resource request settings", func() {
@@ -1340,8 +1449,10 @@ var _ = Describe("Etcd", func() {
 						Spec: druidcorev1alpha1.EtcdSpec{
 							Replicas: 3,
 							Etcd: druidcorev1alpha1.EtcdConfig{
-								PeerUrlTLS: &druidcorev1alpha1.TLSConfig{
-									ServerTLSSecretRef: corev1.SecretReference{Name: "peerServerSecretName", Namespace: testNamespace},
+								PeerUrlTLS: &druidcorev1alpha1.PeerTLSConfig{
+									TLSConfig: druidcorev1alpha1.TLSConfig{
+										ServerTLSSecretRef: corev1.SecretReference{Name: "peerServerSecretName", Namespace: testNamespace},
+									},
 								},
 							},
 						},
@@ -1730,13 +1841,15 @@ var _ = Describe("Etcd", func() {
 					},
 					Spec: druidcorev1alpha1.EtcdSpec{
 						Etcd: druidcorev1alpha1.EtcdConfig{
-							PeerUrlTLS: &druidcorev1alpha1.TLSConfig{
-								TLSCASecretRef: druidcorev1alpha1.SecretReference{
-									SecretReference: corev1.SecretReference{
-										Name:      caName,
-										Namespace: testNamespace,
+							PeerUrlTLS: &druidcorev1alpha1.PeerTLSConfig{
+								TLSConfig: druidcorev1alpha1.TLSConfig{
+									TLSCASecretRef: druidcorev1alpha1.SecretReference{
+										SecretReference: corev1.SecretReference{
+											Name:      caName,
+											Namespace: testNamespace,
+										},
+										DataKey: new(secretsutils.DataKeyCertificateBundle),
 									},
-									DataKey: new(secretsutils.DataKeyCertificateBundle),
 								},
 							},
 						},

@@ -279,7 +279,7 @@ var _ = Describe("NodeLocalDNS", func() {
 				Shoot: runtime.RawExtension{
 					Object: shoot,
 				},
-				Seed: runtime.RawExtension{
+				Seed: &runtime.RawExtension{
 					Object: &gardencorev1beta1.Seed{},
 				},
 				CloudProfile: runtime.RawExtension{
@@ -664,7 +664,7 @@ spec:
     kind: DaemonSet
     name: node-local-dns-worker-aaaa
   updatePolicy:
-    updateMode: Recreate
+    updateMode: InPlaceOrRecreate
 status: {}
 `
 		)
@@ -741,7 +741,7 @@ spec:
     kind: DaemonSet
     name: node-local-dns-worker-aaaa
   updatePolicy:
-    updateMode: Recreate
+    updateMode: InPlaceOrRecreate
 status: {}
 `
 			})
@@ -962,7 +962,7 @@ spec:
     kind: DaemonSet
     name: node-local-dns-worker-aaaa
   updatePolicy:
-    updateMode: Recreate
+    updateMode: InPlaceOrRecreate
 status: {}
 `
 				})
@@ -1181,7 +1181,7 @@ spec:
     kind: DaemonSet
     name: node-local-dns-worker-aaaa
   updatePolicy:
-    updateMode: Recreate
+    updateMode: InPlaceOrRecreate
 status: {}
 `
 			})

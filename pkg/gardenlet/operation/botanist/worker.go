@@ -21,6 +21,7 @@ import (
 	"github.com/gardener/gardener/pkg/component/extensions/worker"
 	"github.com/gardener/gardener/pkg/controllerutils"
 	shootpkg "github.com/gardener/gardener/pkg/gardenlet/operation/shoot"
+	"github.com/gardener/gardener/pkg/utils/kubernetes/health"
 	"github.com/gardener/gardener/pkg/utils/managedresources"
 	"github.com/gardener/gardener/pkg/utils/retry"
 	"github.com/gardener/gardener/pkg/utils/secrets"
@@ -28,6 +29,10 @@ import (
 
 // DefaultWorker creates the default deployer for the Worker custom resource.
 func (b *Botanist) DefaultWorker() worker.Interface {
+	if b.Shoot.IsWorkerless {
+		return nil
+	}
+
 	workers := b.Shoot.GetInfo().Spec.Provider.Workers
 	// In `gardenadm bootstrap` we only deploy the control plane worker pool. When running `gardenadm init` on the
 	// created control plane nodes, the full `Worker` with all pools will be deployed.
@@ -69,7 +74,7 @@ func (b *Botanist) DeployWorker(ctx context.Context) error {
 	b.Shoot.Components.Extensions.Worker.SetInfrastructureProviderStatus(b.Shoot.Components.Extensions.Infrastructure.ProviderStatus())
 	b.Shoot.Components.Extensions.Worker.SetWorkerPoolNameToOperatingSystemConfigsMap(b.Shoot.Components.Extensions.OperatingSystemConfig.WorkerPoolNameToOperatingSystemConfigsMap())
 
-	if b.IsRestorePhase() {
+	if b.Shoot.IsRestorePhase() {
 		return b.Shoot.Components.Extensions.Worker.Restore(ctx, b.Shoot.GetShootState())
 	}
 
@@ -127,8 +132,10 @@ func WorkerPoolToOperatingSystemConfigSecretMetaMap(ctx context.Context, shootCl
 	return workerPoolToCloudConfigSecretMeta, nil
 }
 
-// OperatingSystemConfigUpdatedForAllWorkerPools checks if all the nodes for all the provided worker pools have successfully
+// OperatingSystemConfigUpdatedForAllWorkerPools checks if all the non-preserved nodes for all the provided worker pools have successfully
 // applied the desired version of their cloud-config user data.
+// Since preserved unhealthy nodes are intentionally preserved and may not get their cloud-config updated, they are skipped in the check
+// to avoid blocking shoot reconciliation.
 func OperatingSystemConfigUpdatedForAllWorkerPools(
 	workers []gardencorev1beta1.Worker,
 	workerPoolToNodes map[string][]corev1.Node,
@@ -150,6 +157,12 @@ func OperatingSystemConfigUpdatedForAllWorkerPools(
 
 		for _, node := range workerPoolToNodes[worker.Name] {
 			if nodeToBeDeleted(node, gardenerNodeAgentSecretName) {
+				continue
+			}
+
+			// Skip preserved unhealthy nodes - these nodes may not get their OSC
+			// updated for an extended period of time and should not block shoot reconciliation.
+			if health.IsNodePreservedAndUnhealthy(node) {
 				continue
 			}
 
@@ -209,7 +222,7 @@ func getTimeoutWaitOperatingSystemConfigUpdated(shoot *shootpkg.Shoot) time.Dura
 }
 
 // WaitUntilOperatingSystemConfigUpdatedForAllWorkerPools waits for a maximum of 2*GetTimeoutWaitOperatingSystemConfigUpdated
-// until all the nodes for all the worker pools in the Shoot have successfully applied the desired version of their
+// until all the non-preserved nodes for all the worker pools in the Shoot have successfully applied the desired version of their
 // operating system config.
 func (b *Botanist) WaitUntilOperatingSystemConfigUpdatedForAllWorkerPools(ctx context.Context, tolerateErrors bool) error {
 	timeoutCtx, cancel := context.WithTimeout(ctx, GetTimeoutWaitOperatingSystemConfigUpdated(b.Shoot))

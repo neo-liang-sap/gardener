@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	. "github.com/onsi/gomega/gstruct"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentbaseconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
 
@@ -365,6 +366,31 @@ var _ = Describe("Defaults", func() {
 			SetObjectDefaults_ControllerManagerConfiguration(obj)
 
 			Expect(obj.Controllers.ControllerDeployment).To(Equal(expected))
+		})
+	})
+
+	Describe("ControllerDeploymentReferenceControllerConfiguration defaulting", func() {
+		It("should default ControllerDeploymentReferenceControllerConfiguration correctly", func() {
+			expected := &ControllerDeploymentReferenceControllerConfiguration{
+				ConcurrentSyncs: new(DefaultControllerConcurrentSyncs),
+			}
+			SetObjectDefaults_ControllerManagerConfiguration(obj)
+
+			Expect(obj.Controllers.ControllerDeploymentReference).To(Equal(expected))
+		})
+
+		It("should not default fields that are set", func() {
+			obj = &ControllerManagerConfiguration{
+				Controllers: ControllerManagerControllerConfiguration{
+					ControllerDeploymentReference: &ControllerDeploymentReferenceControllerConfiguration{
+						ConcurrentSyncs: new(10),
+					},
+				},
+			}
+			expected := obj.Controllers.ControllerDeploymentReference.DeepCopy()
+			SetObjectDefaults_ControllerManagerConfiguration(obj)
+
+			Expect(obj.Controllers.ControllerDeploymentReference).To(Equal(expected))
 		})
 	})
 
@@ -889,6 +915,21 @@ var _ = Describe("Defaults", func() {
 			SetObjectDefaults_ControllerManagerConfiguration(obj)
 
 			Expect(obj.Controllers.ShootState).To(Equal(expected))
+		})
+	})
+
+	Describe("ControllerManagerControllerConfiguration CacheSyncTimeout defaulting", func() {
+		It("should default the cache sync timeout", func() {
+			SetObjectDefaults_ControllerManagerConfiguration(obj)
+
+			Expect(obj.Controllers.CacheSyncTimeout).To(PointTo(Equal(metav1.Duration{Duration: 2 * time.Minute})))
+		})
+
+		It("should not overwrite an already set cache sync timeout", func() {
+			obj.Controllers.CacheSyncTimeout = &metav1.Duration{Duration: time.Minute}
+			SetObjectDefaults_ControllerManagerConfiguration(obj)
+
+			Expect(obj.Controllers.CacheSyncTimeout).To(PointTo(Equal(metav1.Duration{Duration: time.Minute})))
 		})
 	})
 })

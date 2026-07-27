@@ -435,7 +435,7 @@ honor_labels: true`
 					Name:       name,
 				},
 				UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-					UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+					UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 				},
 				ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 					ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -489,6 +489,7 @@ honor_labels: true`
 					"role": "monitoring",
 					"name": name,
 					"reference.gardener.cloud/basic-auth-secret-name": "foo",
+					"reference.gardener.cloud/basic-auth-server-name": "istio-basic-auth-server",
 				},
 			},
 			Spec: istionetworkingv1alpha3.VirtualService{
@@ -955,7 +956,7 @@ honor_labels: true`
 					BeforeEach(func() {
 						values.Ingress = &IngressValues{Host: ingressHost, IstioIngressGatewayNamespace: ingressNamespace}
 						deployer = New(logr.Discard(), fakeClient, namespace, values)
-						deployer.SetIngressAuthSecret(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: ingressAuthSecretName}})
+						deployer.SetIngressAuthSecretName(ingressAuthSecretName)
 						deployer.SetIngressWildcardCertSecret(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: ingressWildcardSecretName}})
 					})
 

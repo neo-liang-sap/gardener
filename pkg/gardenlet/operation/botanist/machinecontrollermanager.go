@@ -20,6 +20,10 @@ import (
 
 // DefaultMachineControllerManager returns a deployer for the machine-controller-manager.
 func (b *Botanist) DefaultMachineControllerManager() (machinecontrollermanager.Interface, error) {
+	if b.Shoot.IsWorkerless {
+		return nil, nil
+	}
+
 	image, err := imagevector.Containers().FindImage(imagevector.ContainerImageNameMachineControllerManager, imagevectorutils.RuntimeVersion(b.SeedVersion()), imagevectorutils.TargetVersion(b.ShootVersion()))
 	if err != nil {
 		return nil, err
@@ -69,7 +73,7 @@ func (b *Botanist) DeployMachineControllerManager(ctx context.Context) error {
 	// This is required so that the Machine and MachineSet objects can be restored from the ShootState before
 	// MCM is started. The worker actuator is responsible for scaling MCM to 1 replica after the Machine and MachineSet
 	// objects are restored and before the worker resource is reconciled.
-	case b.IsRestorePhase():
+	case b.Shoot.IsRestorePhase():
 		replicas = 0
 	}
 	b.Shoot.Components.ControlPlane.MachineControllerManager.SetReplicas(replicas)

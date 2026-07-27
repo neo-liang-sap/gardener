@@ -24,13 +24,12 @@ import (
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	v1beta1helper "github.com/gardener/gardener/pkg/api/core/v1beta1/helper"
+	gardenletconfigv1alpha1 "github.com/gardener/gardener/pkg/apis/config/gardenlet/v1alpha1"
 	gardencorev1 "github.com/gardener/gardener/pkg/apis/core/v1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	fakekubernetes "github.com/gardener/gardener/pkg/client/kubernetes/fake"
-	"github.com/gardener/gardener/pkg/component/extensions/bastion"
-	"github.com/gardener/gardener/pkg/component/gardener/resourcemanager"
 	"github.com/gardener/gardener/pkg/gardenadm"
 	"github.com/gardener/gardener/pkg/gardenlet/operation"
 	botanistpkg "github.com/gardener/gardener/pkg/gardenlet/operation/botanist"
@@ -57,31 +56,19 @@ type GardenadmBotanist struct {
 	FS       afero.Afero
 
 	Resources  gardenadm.Resources
-	Components Components
 	Extensions []Extension
 	// Zone is the availability zone in which the new node is being added. This is used to set the
 	// topology.kubernetes.io/zone label on the node resource.
 	// This field is only relevant for shoot with unmanaged infrastructure.
 	Zone *string
 
-	operatingSystemConfigSecret       *corev1.Secret
-	gardenerResourceManagerServiceIPs []string
-	useEtcdManagedByDruid             bool
+	operatingSystemConfigSecret *corev1.Secret
 
 	// controlPlaneMachines is set by ListControlPlaneMachines during `gardenadm bootstrap`.
 	controlPlaneMachines []machinev1alpha1.Machine
 	// sshConnection is the SSH connection to the first control plane machine. It is set by ConnectToControlPlaneMachine
 	// during `gardenadm bootstrap`.
 	sshConnection *sshutils.Connection
-}
-
-// Components contains deployable components for self-hosted shoots.
-type Components struct {
-	// Bastion is only set for `gardenadm bootstrap`.
-	Bastion *bastion.Bastion
-	// RuntimeResourceManager is the gardener-resource-manager instance responsible for runtime operations running in
-	// the garden namespace.
-	RuntimeResourceManager resourcemanager.Interface
 }
 
 // Extension contains the resources needed for an extension registration.
@@ -162,14 +149,7 @@ func NewGardenadmBotanist(
 		return nil, fmt.Errorf("failed creating botanist: %w", err)
 	}
 
-	if gardenadmBotanist.Shoot.RunsControlPlane() {
-		gardenadmBotanist.Components.RuntimeResourceManager, err = gardenadmBotanist.NewRuntimeGardenerResourceManager()
-		if err != nil {
-			return nil, fmt.Errorf("failed creating runtime gardener resource manager: %w", err)
-		}
-	} else {
-		gardenadmBotanist.Components.Bastion = gardenadmBotanist.DefaultBastion()
-
+	if !gardenadmBotanist.Shoot.RunsControlPlane() {
 		// For `gardenadm bootstrap`, we don't initialize the control plane machines with a "full OSC".
 		// Instead, we provide a small alternative OSC, that only fetches the `gardenadm` binary from the registry.
 		gardenadmBotanist.Shoot.Components.Extensions.OperatingSystemConfig, err = gardenadmBotanist.ControlPlaneBootstrapOperatingSystemConfig()
@@ -201,9 +181,13 @@ func NewGardenadmBotanistWithoutResources(log logr.Logger) (*GardenadmBotanist, 
 }
 
 func newOperation(log logr.Logger, gardenClient client.Client, clientSet kubernetes.Interface) *operation.Operation {
+	gardenletConfig := &gardenletconfigv1alpha1.GardenletConfiguration{}
+	gardenletconfigv1alpha1.SetObjectDefaults_GardenletConfiguration(gardenletConfig)
+
 	return &operation.Operation{
 		Logger:         log,
 		Clock:          clock.RealClock{},
+		Config:         gardenletConfig,
 		GardenClient:   gardenClient,
 		SeedClientSet:  clientSet,
 		ShootClientSet: clientSet,
@@ -221,33 +205,35 @@ func newBotanist(
 	*botanistpkg.Botanist,
 	error,
 ) {
-	gardenObj, err := newGardenObject(ctx, resources.Project)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating garden object: %w", err)
-	}
-
-	shootObj, err := newShootObject(ctx, gardenClient, resources, runsControlPlane)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating shoot object: %w", err)
-	}
-
-	seedObj, err := newSeedObject(ctx, resources.Seed, shootObj)
-	if err != nil {
-		return nil, fmt.Errorf("failed creating seed object: %w", err)
-	}
-
 	keysAndValues := []any{"cloudProfile", resources.CloudProfile, "project", resources.Project, "shoot", resources.Shoot}
 	if clientSet == nil {
-		clientSet = newFakeSeedClientSet(seedObj.KubernetesVersion.String())
+		clientSet = newFakeSeedClientSet(resources.Shoot.Spec.Kubernetes.Version)
 		log.Info("Initializing gardenadm botanist with fake client set", keysAndValues...) //nolint:logcheck
 	} else {
 		log.Info("Initializing gardenadm botanist with control plane client set", keysAndValues...) //nolint:logcheck
 	}
 
-	o := newOperation(log, gardenClient, clientSet)
-	o.Garden = gardenObj
-	o.Seed = seedObj
-	o.Shoot = shootObj
+	var (
+		o   = newOperation(log, gardenClient, clientSet)
+		err error
+	)
+
+	o.Garden, err = newGardenObject(ctx, resources.Project)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating garden object: %w", err)
+	}
+
+	o.Shoot, err = newShootObject(ctx, clientSet, gardenClient, resources, runsControlPlane)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating shoot object: %w", err)
+	}
+
+	if !runsControlPlane {
+		o.Seed, err = seedpkg.NewBuilder().WithSeedObject(resources.Seed).Build(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed creating seed object: %w", err)
+		}
+	}
 
 	return botanistpkg.New(ctx, o)
 }
@@ -305,21 +291,9 @@ func newGardenObject(ctx context.Context, project *gardencorev1beta1.Project) (*
 		Build(ctx)
 }
 
-func newSeedObject(ctx context.Context, seed *gardencorev1beta1.Seed, shootObj *shootpkg.Shoot) (*seedpkg.Seed, error) {
-	obj, err := seedpkg.
-		NewBuilder().
-		WithSeedObject(seed).
-		Build(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed building seed object: %w", err)
-	}
-
-	obj.KubernetesVersion = shootObj.KubernetesVersion
-	return obj, nil
-}
-
 func newShootObject(
 	ctx context.Context,
+	clientSet kubernetes.Interface,
 	gardenClient client.Client,
 	resources gardenadm.Resources,
 	runsControlPlane bool,
@@ -327,26 +301,15 @@ func newShootObject(
 	*shootpkg.Shoot,
 	error,
 ) {
-	b := shootpkg.
+	obj, err := shootpkg.
 		NewBuilder().
 		WithProjectName(resources.Project.Name).
 		WithCloudProfileObject(resources.CloudProfile).
-		WithShootObject(resources.Shoot)
-
-	if resources.Shoot.Spec.SecretBindingName != nil || resources.Shoot.Spec.CredentialsBindingName != nil {
-		b = b.WithShootCredentialsFrom(gardenClient)
-	} else {
-		b = b.WithoutShootCredentials()
-	}
-
-	obj, err := b.Build(ctx, gardenClient)
+		WithShootObject(resources.Shoot).
+		WithShootCredentialsFrom(gardenClient).
+		Build(ctx, clientSet, gardenClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed building shoot object: %w", err)
-	}
-
-	obj.Networks, err = shootpkg.ToNetworks(resources.Shoot, obj.IsWorkerless)
-	if err != nil {
-		return nil, fmt.Errorf("failed computing shoot networks: %w", err)
 	}
 
 	// In self-hosted shoot clusters, kube-system is used as the control plane namespace.
@@ -392,13 +355,19 @@ func initializeShootResource(resources gardenadm.Resources, fs afero.Afero, runs
 	shoot.Status.Gardener = gardencorev1beta1.Gardener{Name: "gardenadm", Version: version.Get().GitVersion}
 
 	if runsControlPlane {
-		// This UID is used to compute the name of the BackupEntry object. Persist the generated UID on the machine in case
-		// `gardenadm init` is retried/executed multiple times (otherwise, we'd always generate a new one).
-		uid, err := shootUID(fs)
-		if err != nil {
-			return fmt.Errorf("failed fetching shoot UID: %w", err)
+		// The Shoot UID determines the BackupBucket/BackupEntry names and thus the etcd backup location,
+		// so it must stay stable across invocations.
+		//
+		// - `gardenadm restore`: UID comes from the Shoot status exported by `gardenadm discover existing`; preserve it.
+		// - `gardenadm init`: no UID on the Shoot, so reuse the one persisted at /var/lib/gardenadm/shoot-uid,
+		//   or generate and persist a new one (keeps retries of `gardenadm init` idempotent).
+		if shoot.Status.UID == "" {
+			uid, err := shootUID(fs)
+			if err != nil {
+				return fmt.Errorf("failed fetching shoot UID: %w", err)
+			}
+			shoot.Status.UID = uid
 		}
-		shoot.Status.UID = uid
 
 		if v1beta1helper.HasManagedInfrastructure(resources.Shoot) && resources.ShootState == nil {
 			return fmt.Errorf("shoot has managed infrastructure, but ShootState is missing " +

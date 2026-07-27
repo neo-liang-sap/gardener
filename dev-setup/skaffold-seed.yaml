@@ -55,7 +55,6 @@ build:
             - charts
             - cmd/gardenlet
             - cmd/gardenlet/app
-            - cmd/internal/migration
             - cmd/utils
             - cmd/utils/initrun
             - imagevector
@@ -120,11 +119,13 @@ build:
             - pkg/component/autoscaling/vpa/constants
             - pkg/component/clusteridentity
             - pkg/component/crddeployer
+            - pkg/component/etcd/bootstrap
             - pkg/component/etcd/copybackupstask
             - pkg/component/etcd/etcd
             - pkg/component/etcd/etcd/constants
             - pkg/component/extensions
             - pkg/component/extensions/backupentry
+            - pkg/component/extensions/bastion
             - pkg/component/extensions/containerruntime
             - pkg/component/extensions/controlplane
             - pkg/component/extensions/crds
@@ -225,6 +226,7 @@ build:
             - pkg/controllerutils/routes
             - pkg/extensions
             - pkg/features
+            - pkg/gardenadm/staticpod
             - pkg/gardenlet/bootstrap
             - pkg/gardenlet/bootstrap/certificate
             - pkg/gardenlet/bootstrap/util
@@ -249,6 +251,7 @@ build:
             - pkg/gardenlet/controller/shoot
             - pkg/gardenlet/controller/shoot/care
             - pkg/gardenlet/controller/shoot/lease
+            - pkg/gardenlet/controller/shoot/selfhostedshootexposure
             - pkg/gardenlet/controller/shoot/shoot
             - pkg/gardenlet/controller/shoot/shoot/helper
             - pkg/gardenlet/controller/shoot/state
@@ -305,6 +308,7 @@ build:
             - pkg/utils/secrets
             - pkg/utils/secrets/manager
             - pkg/utils/signals
+            - pkg/utils/ssh
             - pkg/utils/validation
             - pkg/utils/validation/admissionplugins
             - pkg/utils/validation/apigroups
@@ -314,6 +318,8 @@ build:
             - pkg/utils/validation/kubernetesversion
             - pkg/utils/version
             - pkg/utils/workloadidentity
+            - third_party/kube-state-metrics/pkg/customresourcestate
+            - third_party/kube-state-metrics/pkg/metric
             - VERSION
         ldflags:
           - '{{.LD_FLAGS}}'

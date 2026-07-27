@@ -32,7 +32,6 @@ import (
 	gardenletconfigv1alpha1 "github.com/gardener/gardener/pkg/apis/config/gardenlet/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
 	"github.com/gardener/gardener/pkg/client/kubernetes"
 	fakekubernetes "github.com/gardener/gardener/pkg/client/kubernetes/fake"
 	"github.com/gardener/gardener/pkg/component/etcd/etcd"
@@ -88,7 +87,7 @@ var _ = Describe("Etcd", func() {
 			botanist.Shoot = &shootpkg.Shoot{
 				ControlPlaneNamespace: namespace,
 			}
-			botanist.Seed.SetInfo(&gardencorev1beta1.Seed{})
+			botanist.Seed.SetInfo(&gardencorev1beta1.Seed{ObjectMeta: metav1.ObjectMeta{Name: "test-seed"}})
 			botanist.Shoot.SetInfo(&gardencorev1beta1.Shoot{
 				Spec: gardencorev1beta1.ShootSpec{
 					Kubernetes: gardencorev1beta1.Kubernetes{
@@ -110,9 +109,10 @@ var _ = Describe("Etcd", func() {
 				expectedReplicas:                  PointTo(Equal(int32(1))),
 				expectedETCDMainStorageCapacity:   Equal("25Gi"),
 				expectedETCDEventsStorageCapacity: Equal("10Gi"),
-				expectedDefragmentationSchedule:   Equal(new("34 12 */3 * *")),
+				expectedDefragmentationSchedule:   Equal(new("34 12 * * *")),
 				expectedMaintenanceTimeWindow:     Equal(maintenanceTimeWindow),
 				expectedHighAvailabilityEnabled:   Equal(v1beta1helper.IsHAControlPlaneConfigured(botanist.Shoot.GetInfo())),
+				expectedMemberNamePrefix:          Equal("test-seed"),
 			}
 		})
 
@@ -142,36 +142,6 @@ var _ = Describe("Etcd", func() {
 					})
 				}
 			}
-		})
-
-		Context("with ManagedSeed", func() {
-			BeforeEach(func() {
-				botanist.ManagedSeed = &seedmanagementv1alpha1.ManagedSeed{}
-				validator.expectedDefragmentationSchedule = Equal(new("34 12 * * *"))
-			})
-
-			It("should successfully create an etcd interface (normal class)", func() {
-
-				oldNewEtcd := NewEtcd
-				defer func() { NewEtcd = oldNewEtcd }()
-				NewEtcd = validator.NewEtcd
-
-				etcd, err := botanist.DefaultEtcd(role, class)
-				Expect(etcd).NotTo(BeNil())
-				Expect(err).NotTo(HaveOccurred())
-			})
-
-			It("should successfully create an etcd interface (important class)", func() {
-				class := etcd.ClassImportant
-
-				oldNewEtcd := NewEtcd
-				defer func() { NewEtcd = oldNewEtcd }()
-				NewEtcd = validator.NewEtcd
-
-				etcd, err := botanist.DefaultEtcd(role, class)
-				Expect(etcd).NotTo(BeNil())
-				Expect(err).NotTo(HaveOccurred())
-			})
 		})
 
 		Context("with minAllowed configuration", func() {
@@ -220,6 +190,37 @@ var _ = Describe("Etcd", func() {
 				NewEtcd = validator.NewEtcd
 
 				etcd, err := botanist.DefaultEtcd("events", class)
+				Expect(etcd).NotTo(BeNil())
+				Expect(err).NotTo(HaveOccurred())
+			})
+		})
+
+		Context("self-hosted shoot", func() {
+			BeforeEach(func() {
+				botanist.Shoot.SetInfo(&gardencorev1beta1.Shoot{
+					Spec: gardencorev1beta1.ShootSpec{
+						Kubernetes: gardencorev1beta1.Kubernetes{
+							Version: "1.27.2",
+						},
+						Maintenance: &gardencorev1beta1.Maintenance{
+							TimeWindow: &maintenanceTimeWindow,
+						},
+						Provider: gardencorev1beta1.Provider{
+							Workers: []gardencorev1beta1.Worker{
+								{Name: "cp-pool", ControlPlane: &gardencorev1beta1.WorkerControlPlane{}},
+							},
+						},
+					},
+				})
+				validator.expectedMemberNamePrefix = Equal("")
+			})
+
+			It("should not set MemberNamePrefix for self-hosted shoots", func() {
+				oldNewEtcd := NewEtcd
+				defer func() { NewEtcd = oldNewEtcd }()
+				NewEtcd = validator.NewEtcd
+
+				etcd, err := botanist.DefaultEtcd(role, class)
 				Expect(etcd).NotTo(BeNil())
 				Expect(err).NotTo(HaveOccurred())
 			})
@@ -532,6 +533,7 @@ type newEtcdValidator struct {
 	expectedHighAvailabilityEnabled   gomegatypes.GomegaMatcher
 	expectedMaintenanceTimeWindow     gomegatypes.GomegaMatcher
 	expectedAutoscalingConfiguration  gomegatypes.GomegaMatcher
+	expectedMemberNamePrefix          gomegatypes.GomegaMatcher
 }
 
 func (v *newEtcdValidator) NewEtcd(
@@ -560,6 +562,9 @@ func (v *newEtcdValidator) NewEtcd(
 		Expect(values.Autoscaling).To(v.expectedAutoscalingConfiguration)
 	} else {
 		Expect(values.Autoscaling).To(Equal(etcd.AutoscalingConfig{}))
+	}
+	if v.expectedMemberNamePrefix != nil {
+		Expect(values.MemberNamePrefix).To(v.expectedMemberNamePrefix)
 	}
 
 	return v

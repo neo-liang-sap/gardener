@@ -1109,6 +1109,11 @@ func (in *ClusterAutoscaler) DeepCopyInto(out *ClusterAutoscaler) {
 		*out = new(metav1.Duration)
 		**out = **in
 	}
+	if in.Autoscaling != nil {
+		in, out := &in.Autoscaling, &out.Autoscaling
+		*out = new(ControlPlaneAutoscaling)
+		(*in).DeepCopyInto(*out)
+	}
 	return
 }
 
@@ -1396,6 +1401,11 @@ func (in *ControllerInstallationSpec) DeepCopyInto(out *ControllerInstallationSp
 		*out = new(v1.ObjectReference)
 		**out = **in
 	}
+	if in.ResourceRefs != nil {
+		in, out := &in.ResourceRefs, &out.ResourceRefs
+		*out = make([]v1.ObjectReference, len(*in))
+		copy(*out, *in)
+	}
 	return
 }
 
@@ -1588,6 +1598,11 @@ func (in *ControllerResource) DeepCopyInto(out *ControllerResource) {
 		in, out := &in.ClusterCompatibility, &out.ClusterCompatibility
 		*out = make([]ClusterType, len(*in))
 		copy(*out, *in)
+	}
+	if in.ContinuousEndpointUpdate != nil {
+		in, out := &in.ContinuousEndpointUpdate, &out.ContinuousEndpointUpdate
+		*out = new(bool)
+		**out = **in
 	}
 	return
 }
@@ -3529,6 +3544,16 @@ func (in *MachineControllerManagerSettings) DeepCopyInto(out *MachineControllerM
 	if in.DisableHealthTimeout != nil {
 		in, out := &in.DisableHealthTimeout, &out.DisableHealthTimeout
 		*out = new(bool)
+		**out = **in
+	}
+	if in.MachinePreserveTimeout != nil {
+		in, out := &in.MachinePreserveTimeout, &out.MachinePreserveTimeout
+		*out = new(metav1.Duration)
+		**out = **in
+	}
+	if in.AutoPreserveFailedMachineMax != nil {
+		in, out := &in.AutoPreserveFailedMachineMax, &out.AutoPreserveFailedMachineMax
+		*out = new(int32)
 		**out = **in
 	}
 	return

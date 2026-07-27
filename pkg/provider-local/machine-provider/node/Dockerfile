@@ -1,4 +1,4 @@
-FROM kindest/node:v1.35.5@sha256:ce977ae6d65918d0b58a5f8b5e940429c2ce42fa3a5619ec2bbc60b949c0ac95
+FROM kindest/node:v1.36.1@sha256:3489c7674813ba5d8b1a9977baea8a6e553784dab7b84759d1014dbd78f7ebd5
 
 RUN apt-get update -yq && \
     apt-get install -yq --no-install-recommends wget apparmor apparmor-utils jq openssh-server sudo logrotate
@@ -11,12 +11,7 @@ RUN rm -f /etc/systemd/system/kubelet.service && \
 # kubelets) get their own cgroup namespace. Without this, nested kubelets see the host's cgroup
 # hierarchy and fail to manage cgroups properly. This is the same adjustment that kind.sh performs
 # at cluster creation time for KinD nodes.
-#
-# Also run containers unconfined (no seccomp, no AppArmor) so that processes started by the
-# machine node's containerd (e.g. the cilium-cli host-netns DaemonSet used for encryption tests)
-# are not restricted. Without this, the runtime default seccomp profile and the host's AppArmor
-# profile are inherited by nested containers.
-RUN jq '.linux.namespaces += [{"type": "cgroup"}] | .linux.seccomp = {} | .process.apparmorProfile = "unconfined"' /etc/containerd/cri-base.json > /tmp/cri-base.json && \
+RUN jq '.linux.namespaces += [{"type": "cgroup"}]' /etc/containerd/cri-base.json > /tmp/cri-base.json && \
     mv /tmp/cri-base.json /etc/containerd/cri-base.json
 
 # copy containerd hosts configurations for local registry mirrors

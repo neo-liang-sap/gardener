@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/cluster"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/gardener/gardener/pkg/client/kubernetes/clientmap"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/care"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/lease"
+	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/selfhostedshootexposure"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/shoot"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/state"
 	"github.com/gardener/gardener/pkg/gardenlet/controller/shoot/status"
@@ -39,6 +41,7 @@ func AddToManager(
 	gardenClusterIdentity string,
 	healthManager healthz.Manager,
 	seedName string,
+	selfHostedShoot *gardencorev1beta1.Shoot,
 ) error {
 	// The ShootState reconciler is only enabled when:
 	// (a) the gardenlet is responsible for a self-hosted shoot (we always want ShootStates for such clusters in the
@@ -54,18 +57,15 @@ func AddToManager(
 		shootStateControllerEnabled = !responsibleForManagedSeed && ptr.Deref(cfg.Controllers.ShootState.ConcurrentSyncs, 0) > 0
 	}
 
-	// TODO(rfranzke): Enable this reconciler when the work on GEP-0028 progresses.
-	if !gardenletutils.IsResponsibleForSelfHostedShoot() {
-		if err := (&shoot.Reconciler{
-			SeedClientSet:               seedClientSet,
-			ShootClientMap:              shootClientMap,
-			Config:                      cfg,
-			Identity:                    identity,
-			GardenClusterIdentity:       gardenClusterIdentity,
-			ShootStateControllerEnabled: shootStateControllerEnabled,
-		}).AddToManager(mgr, gardenCluster); err != nil {
-			return fmt.Errorf("failed adding main reconciler: %w", err)
-		}
+	if err := (&shoot.Reconciler{
+		SeedClientSet:               seedClientSet,
+		ShootClientMap:              shootClientMap,
+		Config:                      cfg,
+		Identity:                    identity,
+		GardenClusterIdentity:       gardenClusterIdentity,
+		ShootStateControllerEnabled: shootStateControllerEnabled,
+	}).AddToManager(mgr, gardenCluster); err != nil {
+		return fmt.Errorf("failed adding main reconciler: %w", err)
 	}
 
 	if err := (&care.Reconciler{
@@ -100,6 +100,12 @@ func AddToManager(
 	if gardenletutils.IsResponsibleForSelfHostedShoot() {
 		if err := lease.AddToManager(mgr, gardenCluster, seedClientSet.RESTClient(), healthManager, nil); err != nil {
 			return fmt.Errorf("failed adding lease reconciler: %w", err)
+		}
+
+		if err := (&selfhostedshootexposure.Reconciler{
+			ShootKey: client.ObjectKeyFromObject(selfHostedShoot),
+		}).AddToManager(mgr, gardenCluster); err != nil {
+			return fmt.Errorf("failed adding selfhostedshootexposure reconciler: %w", err)
 		}
 	}
 

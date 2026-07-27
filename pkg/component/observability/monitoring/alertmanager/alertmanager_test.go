@@ -233,7 +233,7 @@ var _ = Describe("Alertmanager", func() {
 					Name:       name,
 				},
 				UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-					UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+					UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 				},
 				ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 					ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
@@ -363,6 +363,7 @@ var _ = Describe("Alertmanager", func() {
 					"role":         "monitoring",
 					"alertmanager": name,
 					"reference.gardener.cloud/basic-auth-secret-name": "foo",
+					"reference.gardener.cloud/basic-auth-server-name": "istio-basic-auth-server",
 				},
 			},
 			Spec: istionetworkingv1alpha3.VirtualService{

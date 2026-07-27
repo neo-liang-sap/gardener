@@ -20,6 +20,10 @@ import (
 
 // DefaultInfrastructure creates the default deployer for the Infrastructure custom resource.
 func (b *Botanist) DefaultInfrastructure() infrastructure.Interface {
+	if b.Shoot.IsWorkerless {
+		return nil
+	}
+
 	return infrastructure.New(
 		b.Logger,
 		b.SeedClientSet.Client(),
@@ -29,7 +33,7 @@ func (b *Botanist) DefaultInfrastructure() infrastructure.Interface {
 			Type:              b.Shoot.GetInfo().Spec.Provider.Type,
 			ProviderConfig:    b.Shoot.GetInfo().Spec.Provider.InfrastructureConfig,
 			Region:            b.Shoot.GetInfo().Spec.Region,
-			AnnotateOperation: controllerutils.HasTask(b.Shoot.GetInfo().Annotations, v1beta1constants.ShootTaskDeployInfrastructure) || b.IsRestorePhase(),
+			AnnotateOperation: controllerutils.HasTask(b.Shoot.GetInfo().Annotations, v1beta1constants.ShootTaskDeployInfrastructure) || b.Shoot.IsRestorePhase(),
 		},
 		infrastructure.DefaultInterval,
 		infrastructure.DefaultSevereThreshold,
@@ -48,7 +52,7 @@ func (b *Botanist) DeployInfrastructure(ctx context.Context) error {
 		b.Shoot.Components.Extensions.Infrastructure.SetSSHPublicKey(sshKeypairSecret.Data[secrets.DataKeySSHAuthorizedKeys])
 	}
 
-	if b.IsRestorePhase() {
+	if b.Shoot.IsRestorePhase() {
 		return b.Shoot.Components.Extensions.Infrastructure.Restore(ctx, b.Shoot.GetShootState())
 	}
 

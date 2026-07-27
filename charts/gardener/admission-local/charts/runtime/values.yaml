@@ -14,7 +14,7 @@ vpa:
     minAllowed:
       memory: 64Mi
   updatePolicy:
-    updateMode: "Recreate"
+    updateMode: "InPlaceOrRecreate"
 webhookConfig:
   mode: url
   serverPort: 10250
@@ -30,3 +30,6 @@ leaderElection:
   enable: true
 highAvailability:
   enable: true
+
+logLevel: info
+logFormat: json

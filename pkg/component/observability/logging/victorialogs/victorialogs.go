@@ -8,11 +8,12 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	victoriametricsv1 "github.com/VictoriaMetrics/operator/api/operator/v1"
 	victoriametricsv1beta1 "github.com/VictoriaMetrics/operator/api/operator/v1beta1"
-	"github.com/google/go-containerregistry/pkg/name"
+	pvcautoscalerv1alpha1 "github.com/gardener/pvc-autoscaler/api/autoscaling/v1alpha1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
@@ -41,8 +42,11 @@ const (
 
 // Values is the values for VictoriaLogs configurations.
 type Values struct {
-	// Image is the VictoriaLogs image.
-	Image string
+	// ImageRepository is the VictoriaLogs image repository.
+	ImageRepository string
+	// ImageTag is the VictoriaLogs image tag. May include an appended digest
+	// in the form "<tag>@sha256:...".
+	ImageTag string
 	// Storage is the disk storage capacity of VictoriaLogs.
 	// If not set, a default of 30Gi will be used.
 	Storage *resource.Quantity
@@ -54,6 +58,16 @@ type Values struct {
 	Replicas int32
 	// PriorityClassName is the name of the priority class for the VictoriaLogs pods.
 	PriorityClassName string
+	// PVCAutoscaler configures whether and how the VictoriaLogs PVC is autoscaled.
+	PVCAutoscaling PVCAutoscalingConfig
+}
+
+// PVCAutoscalingConfig configures whether and up to what capacity the VictoriaLogs PVC is autoscaled.
+type PVCAutoscalingConfig struct {
+	// Enabled controls whether the component creates a PersistentVolumeClaimAutoscaler resource.
+	Enabled bool
+	// MaxCapacity is the upper bound up to which the PVC may be scaled.
+	MaxCapacity resource.Quantity
 }
 
 type victoriaLogs struct {
@@ -76,18 +90,32 @@ func New(
 }
 
 func (v *victoriaLogs) Deploy(ctx context.Context) error {
-	registry := managedresources.NewRegistry(kubernetes.SeedScheme, kubernetes.SeedCodec, kubernetes.SeedSerializer)
-	imageRef, err := name.ParseReference(v.values.Image)
-	if err != nil {
-		return err
+	// TODO(rrhubenov): Remove this check once https://github.com/VictoriaMetrics/operator/pull/2401 is merged
+	// and we update to the release that includes it. Until then, the VictoriaMetrics operator cannot handle a
+	// digest-only image reference, so we reject it here. A digest-only tag has the form "<algorithm>:<hex>"
+	// (e.g. "sha256:...", "sha512:...") whereas a tag+digest combined form contains a "@" separator.
+	if !strings.Contains(v.values.ImageTag, "@") {
+		for _, algorithmPrefix := range []string{"sha256:", "sha512:"} {
+			if strings.HasPrefix(v.values.ImageTag, algorithmPrefix) {
+				return fmt.Errorf("digest-only image reference %q is not supported yet", v.values.ImageRepository+"@"+v.values.ImageTag)
+			}
+		}
 	}
 
-	serializedResources, err := registry.AddAllAndSerialize(
-		v.vlSingle(imageRef.Context().Name(), imageRef.Identifier()),
+	registry := managedresources.NewRegistry(kubernetes.SeedScheme, kubernetes.SeedCodec, kubernetes.SeedSerializer)
+
+	resources := []client.Object{
+		v.vlSingle(),
 		v.getVPA(),
 		v.getServiceMonitor(),
 		v.getPrometheusRule(),
-	)
+	}
+
+	if v.values.PVCAutoscaling.Enabled {
+		resources = append(resources, v.getPVCA(v.values.PVCAutoscaling))
+	}
+
+	serializedResources, err := registry.AddAllAndSerialize(resources...)
 	if err != nil {
 		return err
 	}
@@ -113,7 +141,7 @@ func (v *victoriaLogs) WaitCleanup(ctx context.Context) error {
 	return managedresources.WaitUntilDeleted(timeoutCtx, v.client, v.namespace, constants.ManagedResourceNameRuntime)
 }
 
-func (v *victoriaLogs) vlSingle(imageRepo, imageTag string) *victoriametricsv1.VLSingle {
+func (v *victoriaLogs) vlSingle() *victoriametricsv1.VLSingle {
 	storage := resource.MustParse("30Gi")
 	if v.values.Storage != nil {
 		storage = *v.values.Storage
@@ -132,8 +160,8 @@ func (v *victoriaLogs) vlSingle(imageRepo, imageTag string) *victoriametricsv1.V
 				DisableSelfServiceScrape: new(true),
 				UseStrictSecurity:        new(true),
 				Image: victoriametricsv1beta1.Image{
-					Repository: imageRepo,
-					Tag:        imageTag,
+					Repository: v.values.ImageRepository,
+					Tag:        v.values.ImageTag,
 				},
 				Port: strconv.Itoa(constants.VictoriaLogsPort),
 				Resources: corev1.ResourceRequirements{
@@ -212,13 +240,40 @@ func (v *victoriaLogs) getVPA() *vpaautoscalingv1.VerticalPodAutoscaler {
 				APIVersion: appsv1.SchemeGroupVersion.String(),
 			},
 			UpdatePolicy: &vpaautoscalingv1.PodUpdatePolicy{
-				UpdateMode: new(vpaautoscalingv1.UpdateModeRecreate),
+				UpdateMode: new(vpaautoscalingv1.UpdateModeInPlaceOrRecreate),
 			},
 			ResourcePolicy: &vpaautoscalingv1.PodResourcePolicy{
 				ContainerPolicies: []vpaautoscalingv1.ContainerResourcePolicy{
 					{
 						ContainerName:    "vlsingle",
 						ControlledValues: new(vpaautoscalingv1.ContainerControlledValuesRequestsOnly),
+					},
+				},
+			},
+		},
+	}
+}
+
+func (v *victoriaLogs) getPVCA(pvcAutoscaling PVCAutoscalingConfig) *pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscaler {
+	return &pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.VLSingleResourceName,
+			Namespace: v.namespace,
+			Labels:    getLabels(),
+		},
+		Spec: pvcautoscalerv1alpha1.PersistentVolumeClaimAutoscalerSpec{
+			TargetRef: autoscalingv1.CrossVersionObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
+				Name:       "vlsingle-" + constants.VLSingleResourceName,
+			},
+			VolumePolicies: []pvcautoscalerv1alpha1.VolumePolicy{
+				{
+					MaxCapacity: pvcAutoscaling.MaxCapacity,
+					ScaleUp: &pvcautoscalerv1alpha1.ScalingRules{
+						UtilizationThresholdPercent: new(70),
+						StepPercent:                 new(10),
+						MinStepAbsolute:             new(resource.MustParse("1Gi")),
 					},
 				},
 			},

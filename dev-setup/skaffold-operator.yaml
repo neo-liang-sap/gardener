@@ -10,7 +10,6 @@ build:
           paths:
             - cmd/gardener-operator
             - cmd/gardener-operator/app
-            - cmd/internal/migration
             - cmd/utils
             - cmd/utils/initrun
             - extensions/pkg/apis/config/v1alpha1
@@ -26,6 +25,7 @@ build:
             - pkg/api/config/operator/v1alpha1/validation
             - pkg/api/core/helper
             - pkg/api/core/shoot
+            - pkg/api/core/v1/helper
             - pkg/api/core/v1beta1/helper
             - pkg/api/core/validation
             - pkg/api/extensions
@@ -176,6 +176,7 @@ build:
             - pkg/operator/controller/extension/extension/admission
             - pkg/operator/controller/extension/extension/controllerregistration
             - pkg/operator/controller/extension/extension/runtime
+            - pkg/operator/controller/extension/reference
             - pkg/operator/controller/extension/required/runtime
             - pkg/operator/controller/extension/required/virtual
             - pkg/operator/controller/garden
@@ -247,6 +248,8 @@ build:
             - pkg/utils/workloadidentity
             - pkg/webhook/configvalidator
             - plugin/pkg
+            - third_party/kube-state-metrics/pkg/customresourcestate
+            - third_party/kube-state-metrics/pkg/metric
             - VERSION
         ldflags:
           - '{{.LD_FLAGS}}'
@@ -394,6 +397,7 @@ build:
             - pkg/api/core/validation
             - pkg/api/extensions
             - pkg/api/extensions/v1alpha1/helper
+            - pkg/api/indexer
             - pkg/api/operations/validation
             - pkg/api/security/validation
             - pkg/api/seedmanagement/helper
@@ -592,6 +596,7 @@ build:
             - pkg/api
             - pkg/api/config/controllermanager/v1alpha1/validation
             - pkg/api/core/helper
+            - pkg/api/core/v1/helper
             - pkg/api/core/v1beta1/helper
             - pkg/api/extensions
             - pkg/api/extensions/v1alpha1/helper
@@ -639,7 +644,8 @@ build:
             - pkg/controllermanager/controller/bastion
             - pkg/controllermanager/controller/certificatesigningrequest
             - pkg/controllermanager/controller/cloudprofile
-            - pkg/controllermanager/controller/controllerdeployment
+            - pkg/controllermanager/controller/controllerdeployment/controllerdeployment
+            - pkg/controllermanager/controller/controllerdeployment/reference
             - pkg/controllermanager/controller/controllerregistration
             - pkg/controllermanager/controller/controllerregistration/clusterfinalizer
             - pkg/controllermanager/controller/controllerregistration/controllerinstallation
@@ -703,7 +709,6 @@ build:
             - pkg/utils/managedresources/builder
             - pkg/utils/retry
             - pkg/utils/secrets
-            - pkg/utils/secrets/manager
             - pkg/utils/signals
             - pkg/utils/validation
             - pkg/utils/validation/admissionplugins
@@ -939,6 +944,7 @@ deploy:
           config.featureGates.PrometheusHealthChecks: true
           config.featureGates.VictoriaLogsBackend: true
           config.featureGates.DisableNginxIngressInGarden: true
+          config.controllers.garden.etcdConfig.featureGates.UpgradeEtcdVersion: true
         createNamespace: true
         wait: true
 profiles:
@@ -1021,6 +1027,7 @@ build:
             - pkg/api/core/v1beta1/helper
             - pkg/api/extensions
             - pkg/api/extensions/v1alpha1/helper
+            - pkg/api/indexer
             - pkg/api/operator/v1alpha1/helper
             - pkg/apis/authentication
             - pkg/apis/authentication/install
@@ -1066,6 +1073,7 @@ build:
             - pkg/component/extensions/operatingsystemconfig/utils
             - pkg/component/kubernetes/apiserver/constants
             - pkg/component/kubernetes/proxy
+            - pkg/component/networking/istiobasicauthserver
             - pkg/component/nodemanagement/machinecontrollermanager
             - pkg/component/observability/monitoring/alertmanager
             - pkg/component/observability/monitoring/prometheus/shoot
@@ -1163,6 +1171,7 @@ build:
             - pkg/api/core/v1beta1/helper
             - pkg/api/extensions
             - pkg/api/extensions/v1alpha1/helper
+            - pkg/api/indexer
             - pkg/api/operator/v1alpha1/helper
             - pkg/apis/authentication
             - pkg/apis/authentication/install
@@ -1291,6 +1300,7 @@ build:
             - cmd/machine-controller-manager-provider-local
             - pkg/api
             - pkg/api/core/v1beta1/helper
+            - pkg/api/indexer
             - pkg/apis/authentication
             - pkg/apis/authentication/install
             - pkg/apis/authentication/v1alpha1

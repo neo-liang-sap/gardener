@@ -17,7 +17,6 @@ import (
 	gardenletconfigv1alpha1 "github.com/gardener/gardener/pkg/apis/config/gardenlet/v1alpha1"
 	gardencorev1beta1 "github.com/gardener/gardener/pkg/apis/core/v1beta1"
 	v1beta1constants "github.com/gardener/gardener/pkg/apis/core/v1beta1/constants"
-	seedmanagementv1alpha1 "github.com/gardener/gardener/pkg/apis/seedmanagement/v1alpha1"
 	"github.com/gardener/gardener/pkg/apis/utils/timewindow"
 	"github.com/gardener/gardener/pkg/component/etcd/etcd"
 	"github.com/gardener/gardener/pkg/component/shared"
@@ -34,7 +33,7 @@ func (b *Botanist) DefaultEtcd(role string, class etcd.Class) (etcd.Interface, e
 		Role:                        role,
 		Class:                       class,
 		CARotationPhase:             v1beta1helper.GetShootCARotationPhase(b.Shoot.GetInfo().Status.Credentials),
-		RuntimeKubernetesVersion:    b.Seed.KubernetesVersion,
+		RuntimeKubernetesVersion:    b.Shoot.RuntimeKubernetesVersion,
 		MaintenanceTimeWindow:       *b.Shoot.GetInfo().Spec.Maintenance.TimeWindow,
 		EvictionRequirement:         getEvictionRequirement(class, b.Shoot),
 		PriorityClassName:           v1beta1constants.PriorityClassNameShootControlPlane500,
@@ -42,7 +41,13 @@ func (b *Botanist) DefaultEtcd(role string, class etcd.Class) (etcd.Interface, e
 		TopologyAwareRoutingEnabled: b.Shoot.TopologyAwareRoutingEnabled,
 	}
 
-	defragmentationSchedule, err := determineDefragmentationSchedule(b.Shoot.GetInfo(), b.ManagedSeed, class)
+	// Prefix etcd member names with the seed name so that members can be distinguished across
+	// control plane migrations between seeds. Self-hosted shoots have no Seed object.
+	if !b.Shoot.IsSelfHosted() {
+		values.MemberNamePrefix = b.Seed.GetInfo().Name
+	}
+
+	defragmentationSchedule, err := determineDefragmentationSchedule(b.Shoot.GetInfo())
 	if err != nil {
 		return nil, err
 	}
@@ -57,12 +62,12 @@ func (b *Botanist) DefaultEtcd(role string, class etcd.Class) (etcd.Interface, e
 		if etcd := b.Shoot.GetInfo().Spec.Kubernetes.ETCD; etcd != nil && etcd.Main != nil && etcd.Main.Autoscaling != nil {
 			values.Autoscaling.MinAllowed = etcd.Main.Autoscaling.MinAllowed
 		}
-		values.StorageCapacity = b.Seed.GetValidVolumeSize("25Gi")
+		values.StorageCapacity = b.GetValidVolumeSize("25Gi")
 	case v1beta1constants.ETCDRoleEvents:
 		if etcd := b.Shoot.GetInfo().Spec.Kubernetes.ETCD; etcd != nil && etcd.Events != nil && etcd.Events.Autoscaling != nil {
 			values.Autoscaling.MinAllowed = etcd.Events.Autoscaling.MinAllowed
 		}
-		values.StorageCapacity = b.Seed.GetValidVolumeSize("10Gi")
+		values.StorageCapacity = b.GetValidVolumeSize("10Gi")
 	}
 
 	if b.Shoot.RunsControlPlane() {
@@ -84,7 +89,7 @@ func getEvictionRequirement(c etcd.Class, s *shoot.Shoot) *string {
 
 // DeployEtcd deploys the etcd main and events.
 func (b *Botanist) DeployEtcd(ctx context.Context) error {
-	if backupConfig := v1beta1helper.GetBackupConfigForShoot(b.Shoot.GetInfo(), b.Seed.GetInfo()); backupConfig != nil {
+	if backupConfig := v1beta1helper.GetBackupConfigForShoot(b.Shoot.GetInfo(), b.GetSeed()); backupConfig != nil {
 		secret := &corev1.Secret{}
 		if err := b.SeedClientSet.Client().Get(ctx, client.ObjectKey{Namespace: b.Shoot.ControlPlaneNamespace, Name: v1beta1constants.BackupSecretName}, secret); err != nil {
 			return err
@@ -196,7 +201,7 @@ func (b *Botanist) deployOrRestoreEtcd(ctx context.Context) error {
 }
 
 func (b *Botanist) isRestorationOfMultiNodeMainEtcdRequired(ctx context.Context) (bool, error) {
-	if !b.IsRestorePhase() || !v1beta1helper.IsHAControlPlaneConfigured(b.Shoot.GetInfo()) {
+	if !b.Shoot.IsRestorePhase() || !v1beta1helper.IsHAControlPlaneConfigured(b.Shoot.GetInfo()) {
 		return false, nil
 	}
 
@@ -251,12 +256,8 @@ func determineBackupSchedule(shoot *gardencorev1beta1.Shoot) (string, error) {
 	)
 }
 
-func determineDefragmentationSchedule(shoot *gardencorev1beta1.Shoot, managedSeed *seedmanagementv1alpha1.ManagedSeed, class etcd.Class) (string, error) {
-	scheduleFormat := "%d %d */3 * *"
-	if managedSeed != nil && class == etcd.ClassImportant {
-		// defrag important etcds of ManagedSeeds daily in the maintenance window
-		scheduleFormat = "%d %d * * *"
-	}
+func determineDefragmentationSchedule(shoot *gardencorev1beta1.Shoot) (string, error) {
+	scheduleFormat := "%d %d * * *"
 
 	return timewindow.DetermineSchedule(
 		scheduleFormat,
